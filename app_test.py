@@ -426,30 +426,23 @@ class StockScraperWeb:
         return summary
     
     def extract_stock(self, text):
-        """Trích xuất mã CK - Xử lý đặc biệt TOP, TIN, CEO"""
+        """Trích xuất mã CK - Fix bug regex"""
         text_upper = text.upper()
         text_lower = text.lower()
         
-        # BLACKLIST - Mở rộng
+        # BLACKLIST
         blacklist_patterns = [
-            # Tin tổng quan thị trường
             r'CHỨNG KHOÁN\s+\w+\s+CÓ\s+NHẬN ĐỊNH',
             r'CHỨNG KHOÁN\s+\w+\s+DỰ BÁO',
             r'CHỨNG KHOÁN\s+\w+\s+PHÂN TÍCH',
             r'CÔNG TY\s+CHỨNG KHOÁN',
             r'CTCK\s+\w+',
-            
-            # Index
             r'VN-INDEX',
             r'HNX-INDEX',
             r'UPCOM-INDEX',
-            
-            # Top cổ phiếu (tránh nhầm với mã TOP)
             r'TOP\s+CỔ\s+PHIẾU',
             r'TOP\s+\d+',
             r'TOP\s+MÃ',
-            
-            # Tin tức (tránh nhầm với mã TIN)
             r'TIN\s+VUI',
             r'TIN\s+TỐT',
             r'TIN\s+XẤU',
@@ -461,15 +454,11 @@ class StockScraperWeb:
             r'MỘT\s+TIN',
             r'CÁC\s+TIN',
             r'NHIỀU\s+TIN',
-            
-            # CEO (tránh nhầm với mã CEO)
             r'CEO\s+CÔNG\s+TY',
             r'CEO\s+CỦA',
             r'CEO\s+MỚI',
             r'GIÁM\s+ĐỐC\s+CEO',
             r'TỔNG\s+GIÁM\s+ĐỐC\s+CEO',
-            
-            # Tổng quan
             r'THỊ TRƯỜNG CHUNG',
             r'DIỄN BIẾN THỊ TRƯỜNG',
             r'TỔNG QUAN THỊ TRƯỜNG',
@@ -481,38 +470,148 @@ class StockScraperWeb:
             if re.search(pattern, text_upper):
                 return None, None, None
         
-        # Tìm theo mã
+        # Tìm mã HNX
         for code in self.hnx_stocks:
             match = re.search(r'\b' + code + r'\b', text_upper)
-            if match:
-                context = text_upper[max(0, match.start()-15):match.end()+15]
-                
-                # Check context xung quanh
-                if re.search(r'CHỨNG KHOÁN\s+' + code, context):
+            if not match:
+                continue
+            
+            context_start = max(0, match.start() - 15)
+            context_end = min(len(text_upper), match.end() + 15)
+            context = text_upper[context_start:context_end]
+            
+            if re.search(r'CHỨNG KHOÁN\s+' + code, context):
+                continue
+            if re.search(r'CTCK\s+' + code, context):
+                continue
+            
+            # Xử lý TOP
+            if code == 'TOP':
+                skip_top = False
+                if match.start() > 0:
+                    prev_char = text_upper[match.start() - 1]
+                    if prev_char.isalnum():
+                        skip_top = True
+                if match.end() < len(text_upper) - 1 and not skip_top:
+                    next_part = text_upper[match.end():match.end() + 15]
+                    if re.match(r'\s+\d', next_part):
+                        skip_top = True
+                    elif re.match(r'\s+(CỔ|MÃ)', next_part):
+                        skip_top = True
+                if skip_top:
                     continue
-                if re.search(r'CTCK\s+' + code, context):
+            
+            # Xử lý TIN
+            if code == 'TIN':
+                skip_tin = False
+                if match.start() >= 5:
+                    prev_part = text_upper[max(0, match.start() - 15):match.start()]
+                    tin_prev_pattern = r'(NHẬN|THEO|MỘT|CÁC|NHIỀU)\s*$'
+                    if re.search(tin_prev_pattern, prev_part):
+                        skip_tin = True
+                if match.end() < len(text_upper) - 5 and not skip_tin:
+                    next_part = text_upper[match.end():match.end() + 20]
+                    tin_next_pattern = r'\s+(VUI|TỐT|XẤU|VẮN|CHỨNG|THỊ)'
+                    if re.match(tin_next_pattern, next_part):
+                        skip_tin = True
+                if skip_tin:
                     continue
-                
-                # ĐẶC BIỆT 1: Mã "TOP"
-                if code == 'TOP':
-                    if match.start() > 0:
-                        prev_char = text_upper[match.start()-1]
-                        if prev_char.isalnum():
-                            continue
-                    
-                    if match.end() < len(text_upper) - 1:
-                        next_chars = text_upper[match.end():match.end()+15]
-                        if re.match(r'\s+\d+', next_chars):
-                            continue
-                        if re.match(r'\s+(CỔ|MÃ)', next_chars):
-                            continue
-                
-                # ĐẶC BIỆT 2: Mã "TIN"
-                if code == 'TIN':
-                    # Check từ TRƯỚC "TIN"
-                    if match.start() >= 5:
-                        prev_words = text_upper[match.start()-15:match.start()]
-                        if re.search(r'(NHẬN|THEO|MỘT|CÁC|NHIỀU)\s*
+            
+            # Xử lý CEO
+            if code == 'CEO':
+                skip_ceo = False
+                if match.end() < len(text_upper) - 5:
+                    next_part = text_upper[match.end():match.end() + 15]
+                    ceo_next_pattern = r'\s+(CÔNG\s+TY|CỦA|MỚI)'
+                    if re.match(ceo_next_pattern, next_part):
+                        skip_ceo = True
+                if match.start() >= 10 and not skip_ceo:
+                    prev_part = text_upper[max(0, match.start() - 20):match.start()]
+                    ceo_prev_pattern = r'(GIÁM\s+ĐỐC|TỔNG\s+GIÁM\s+ĐỐC)\s*$'
+                    if re.search(ceo_prev_pattern, prev_part):
+                        skip_ceo = True
+                if skip_ceo:
+                    continue
+            
+            return code, 'HNX', 'code'
+        
+        # Tìm mã UPCoM
+        for code in self.upcom_stocks:
+            match = re.search(r'\b' + code + r'\b', text_upper)
+            if not match:
+                continue
+            
+            context_start = max(0, match.start() - 15)
+            context_end = min(len(text_upper), match.end() + 15)
+            context = text_upper[context_start:context_end]
+            
+            if re.search(r'CHỨNG KHOÁN\s+' + code, context):
+                continue
+            if re.search(r'CTCK\s+' + code, context):
+                continue
+            
+            # Xử lý TOP
+            if code == 'TOP':
+                skip_top = False
+                if match.start() > 0:
+                    prev_char = text_upper[match.start() - 1]
+                    if prev_char.isalnum():
+                        skip_top = True
+                if match.end() < len(text_upper) - 1 and not skip_top:
+                    next_part = text_upper[match.end():match.end() + 15]
+                    if re.match(r'\s+\d', next_part) or re.match(r'\s+(CỔ|MÃ)', next_part):
+                        skip_top = True
+                if skip_top:
+                    continue
+            
+            # Xử lý TIN
+            if code == 'TIN':
+                skip_tin = False
+                if match.start() >= 5:
+                    prev_part = text_upper[max(0, match.start() - 15):match.start()]
+                    tin_prev_pattern = r'(NHẬN|THEO|MỘT|CÁC|NHIỀU)\s*$'
+                    if re.search(tin_prev_pattern, prev_part):
+                        skip_tin = True
+                if match.end() < len(text_upper) - 5 and not skip_tin:
+                    next_part = text_upper[match.end():match.end() + 20]
+                    tin_next_pattern = r'\s+(VUI|TỐT|XẤU|VẮN|CHỨNG|THỊ)'
+                    if re.match(tin_next_pattern, next_part):
+                        skip_tin = True
+                if skip_tin:
+                    continue
+            
+            # Xử lý CEO
+            if code == 'CEO':
+                skip_ceo = False
+                if match.end() < len(text_upper) - 5:
+                    next_part = text_upper[match.end():match.end() + 15]
+                    ceo_next_pattern = r'\s+(CÔNG\s+TY|CỦA|MỚI)'
+                    if re.match(ceo_next_pattern, next_part):
+                        skip_ceo = True
+                if match.start() >= 10 and not skip_ceo:
+                    prev_part = text_upper[max(0, match.start() - 20):match.start()]
+                    ceo_prev_pattern = r'(GIÁM\s+ĐỐC|TỔNG\s+GIÁM\s+ĐỐC)\s*$'
+                    if re.search(ceo_prev_pattern, prev_part):
+                        skip_ceo = True
+                if skip_ceo:
+                    continue
+            
+            return code, 'UPCoM', 'code'
+        
+        # Tìm theo tên
+        words = text_lower.split()
+        matched_codes = []
+        for word in words:
+            if len(word) > 3 and word in self.name_to_code:
+                matched_codes.extend(self.name_to_code[word])
+        
+        if matched_codes:
+            from collections import Counter
+            most_common = Counter(matched_codes).most_common(1)[0][0]
+            exchange = self.stock_to_exchange.get(most_common)
+            return most_common, exchange, 'name'
+        
+        return None, None, None
     
     def fetch_url(self, url, max_retries=2):
         for attempt in range(max_retries):
