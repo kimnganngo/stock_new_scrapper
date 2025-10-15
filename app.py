@@ -1,7 +1,10 @@
 # ============================================================
-# 🎯 STREAMLIT WEB APP V2.2 - UPLOAD STOCK LIST
+# 🎯 STREAMLIT WEB APP V2.4 - UPLOAD + SUMMARIZE
 # ============================================================
-# Tính năng mới: Upload Excel/CSV danh sách mã CK
+# ✅ Upload danh sách mã CK
+# ✅ Tóm tắt extractive (từ V1.0)
+# ✅ Sentiment analysis
+# ✅ Risk detection
 # ============================================================
 
 import streamlit as st
@@ -19,14 +22,14 @@ import io
 # ============================================================
 
 st.set_page_config(
-    page_title="Cào Tin Chứng Khoán V2.2",
+    page_title="Cào Tin Chứng Khoán V2.4",
     page_icon="📈",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
 # ============================================================
-# CSS CUSTOM
+# CSS
 # ============================================================
 
 st.markdown("""
@@ -37,12 +40,6 @@ st.markdown("""
         color: #1f77b4;
         text-align: center;
         margin-bottom: 1rem;
-    }
-    .sub-header {
-        font-size: 1.2rem;
-        color: #666;
-        text-align: center;
-        margin-bottom: 2rem;
     }
     .upload-box {
         background-color: #e8f4f8;
@@ -72,12 +69,6 @@ st.markdown("""
         margin: 0.5rem 0;
         border-radius: 0.3rem;
     }
-    .metric-card {
-        background-color: #f0f2f6;
-        padding: 1rem;
-        margin: 0.5rem 0;
-        border-radius: 0.3rem;
-    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -86,83 +77,53 @@ st.markdown("""
 # ============================================================
 
 def load_default_stock_list():
-    """Danh sách mã mặc định (backup)"""
+    """Danh sách mã mặc định"""
     default_data = {
-        'Mã CK': ['SHS', 'PVS', 'NVB', 'VCS', 'BVS', 'APS', 'MBS', 'CEO', 'VGC', 'PVC',
-                  'LPB', 'EIB', 'BAB', 'OCB', 'BMI', 'HDG', 'PAN', 'NTL'],
-        'Sàn': ['HNX']*10 + ['UPCoM']*8,
-        'Tên công ty': ['Chứng khoán SHS', 'Chứng khoán PVS', 'Ngân hàng NVB', 'Chứng khoán VCS',
-                        'Chứng khoán BVS', 'Chứng khoán APS', 'Chứng khoán MBS', 'Tập đoàn CEO',
-                        'Viglacera', 'PVC', 'Ngân hàng LPB', 'Ngân hàng EIB', 'Ngân hàng BAB',
-                        'Ngân hàng OCB', 'Bảo hiểm BMI', 'Tập đoàn HDG', 'PAN Group', 'NTL Logistics']
+        'Mã CK': ['SHS', 'PVS', 'NVB', 'VCS', 'BVS', 'CEO', 'VGC', 'PVC',
+                  'LPB', 'EIB', 'BAB', 'OCB', 'HDG', 'PAN'],
+        'Sàn': ['HNX']*8 + ['UPCoM']*6,
+        'Tên công ty': ['Chứng khoán SHS', 'Chứng khoán PVS', 'Ngân hàng NVB',
+                        'Chứng khoán VCS', 'Chứng khoán BVS', 'Tập đoàn CEO',
+                        'Viglacera', 'PVC', 'Ngân hàng LPB', 'Ngân hàng EIB',
+                        'Ngân hàng BAB', 'Ngân hàng OCB', 'Tập đoàn HDG', 'PAN Group']
     }
     return pd.DataFrame(default_data)
 
 def parse_stock_file(uploaded_file):
     """Parse Excel/CSV file"""
     try:
-        # Đọc file
         if uploaded_file.name.endswith('.csv'):
             df = pd.read_csv(uploaded_file)
         else:
             df = pd.read_excel(uploaded_file)
         
-        # Chuẩn hóa tên cột
         df.columns = df.columns.str.strip().str.lower()
         
-        # Map các tên cột có thể có
         column_mapping = {
-            'mã ck': 'Mã CK',
-            'ma ck': 'Mã CK',
-            'mã': 'Mã CK',
-            'ma': 'Mã CK',
-            'code': 'Mã CK',
-            'stock_code': 'Mã CK',
-            'ticker': 'Mã CK',
-            
-            'sàn': 'Sàn',
-            'san': 'Sàn',
-            'exchange': 'Sàn',
-            'mã sàn': 'Sàn',
-            'ma san': 'Sàn',
-            
-            'tên công ty': 'Tên công ty',
-            'ten cong ty': 'Tên công ty',
-            'tên': 'Tên công ty',
-            'ten': 'Tên công ty',
-            'name': 'Tên công ty',
-            'company': 'Tên công ty',
-            'company_name': 'Tên công ty',
+            'mã ck': 'Mã CK', 'ma ck': 'Mã CK', 'mã': 'Mã CK', 'code': 'Mã CK',
+            'sàn': 'Sàn', 'san': 'Sàn', 'exchange': 'Sàn',
+            'tên công ty': 'Tên công ty', 'ten cong ty': 'Tên công ty', 'name': 'Tên công ty',
         }
         
-        # Rename columns
         for old_col, new_col in column_mapping.items():
             if old_col in df.columns:
                 df.rename(columns={old_col: new_col}, inplace=True)
         
-        # Kiểm tra các cột bắt buộc
         required_cols = ['Mã CK', 'Sàn']
         missing_cols = [col for col in required_cols if col not in df.columns]
         
         if missing_cols:
             return None, f"Thiếu các cột: {', '.join(missing_cols)}"
         
-        # Thêm cột Tên công ty nếu không có
         if 'Tên công ty' not in df.columns:
             df['Tên công ty'] = ''
         
-        # Làm sạch dữ liệu
         df['Mã CK'] = df['Mã CK'].astype(str).str.strip().str.upper()
         df['Sàn'] = df['Sàn'].astype(str).str.strip().str.upper()
         df['Tên công ty'] = df['Tên công ty'].astype(str).str.strip()
         
-        # Lọc chỉ HNX và UPCoM
         df = df[df['Sàn'].isin(['HNX', 'UPCOM'])]
-        
-        # Chuẩn hóa UPCoM
         df['Sàn'] = df['Sàn'].replace('UPCOM', 'UPCoM')
-        
-        # Bỏ trùng
         df = df.drop_duplicates(subset=['Mã CK'])
         
         return df, None
@@ -188,25 +149,53 @@ def create_sample_excel():
     return buffer.getvalue()
 
 # ============================================================
-# SCRAPER CLASSES
+# KEYWORD RISK DETECTOR
 # ============================================================
 
 class KeywordRiskDetector:
-    """Phát hiện keywords rủi ro"""
-    
     def __init__(self):
         self.keywords_db = {
+            # A. Nội bộ & Quản trị
             "lãnh đạo bị bắt": {"category": "A. Nội bộ", "severity": "severe", "score": -95, "violation": "I.2, II.A"},
             "lãnh đạo bỏ trốn": {"category": "A. Nội bộ", "severity": "severe", "score": -95, "violation": "I.2, II.A"},
             "cổ đông lớn bán chui": {"category": "A. Nội bộ", "severity": "severe", "score": -85, "violation": "I.1, II.A"},
             "chủ tịch bất ngờ thoái hết vốn": {"category": "A. Nội bộ", "severity": "severe", "score": -85, "violation": "I.1, II.A"},
+            
+            # B. Tài chính
             "bất ngờ báo lỗ": {"category": "B. Tài chính", "severity": "severe", "score": -80, "violation": "I.4, II.B"},
             "âm vốn chủ": {"category": "B. Tài chính", "severity": "severe", "score": -90, "violation": "II.B"},
+            "mất khả năng thanh toán": {"category": "B. Tài chính", "severity": "severe", "score": -90, "violation": "II.B"},
+            "nợ xấu bất thường": {"category": "B. Tài chính", "severity": "severe", "score": -80, "violation": "II.B"},
+            
+            # C. Thao túng & Biến động giá bất thường
             "đội lái làm giá": {"category": "C. Thao túng", "severity": "severe", "score": -95, "violation": "I.3, II.C"},
             "tăng trần liên tiếp": {"category": "C. Thao túng", "severity": "warning", "score": -60, "violation": "I.2, II.C"},
+            "giảm sàn liên tục": {"category": "C. Thao túng", "severity": "warning", "score": -70, "violation": "I.2, II.C"},
+            "bốc đầu": {"category": "C. Thao túng", "severity": "warning", "score": -65, "violation": "I.2, I.3, II.C"},
+            "kịch trần": {"category": "C. Thao túng", "severity": "warning", "score": -65, "violation": "I.2, I.3, II.C"},
+            "rớt đáy": {"category": "C. Thao túng", "severity": "warning", "score": -70, "violation": "I.2, I.3, II.C"},
+            "cổ phiếu tăng phi mã": {"category": "C. Thao túng", "severity": "warning", "score": -65, "violation": "I.2, I.4, II.C"},
+            "tăng dựng đứng": {"category": "C. Thao túng", "severity": "warning", "score": -60, "violation": "I.2, II.C"},
+            "khối lượng tăng bất thường": {"category": "C. Thao túng", "severity": "warning", "score": -65, "violation": "I.6, II.C"},
+            "giao dịch nội gián": {"category": "C. Thao túng", "severity": "severe", "score": -90, "violation": "I.1, II.C"},
+            
+            # D. M&A
+            "niêm yết cửa sau": {"category": "D. M&A", "severity": "severe", "score": -85, "violation": "I.5, II.D"},
+            "thâu tóm": {"category": "D. M&A", "severity": "warning", "score": -50, "violation": "I.5, II.D"},
+            
+            # E. Pháp lý
             "công an điều tra": {"category": "E. Pháp lý", "severity": "severe", "score": -90, "violation": "II.E"},
+            "khởi tố lãnh đạo": {"category": "E. Pháp lý", "severity": "severe", "score": -95, "violation": "II.E"},
+            "gian lận tài chính": {"category": "E. Pháp lý", "severity": "severe", "score": -95, "violation": "II.E"},
+            
+            # F. Sự kiện bên ngoài
+            "cháy nhà xưởng": {"category": "F. Sự kiện ngoài", "severity": "severe", "score": -75, "violation": "II.F"},
+            "bị thu hồi giấy phép": {"category": "F. Sự kiện ngoài", "severity": "severe", "score": -90, "violation": "II.F"},
+            
+            # Tích cực
             "lợi nhuận tăng": {"category": "Tích cực", "severity": "positive", "score": 70, "violation": ""},
             "tăng trưởng mạnh": {"category": "Tích cực", "severity": "positive", "score": 65, "violation": ""},
+            "doanh thu kỷ lục": {"category": "Tích cực", "severity": "positive", "score": 75, "violation": ""},
         }
     
     def analyze(self, text):
@@ -246,9 +235,11 @@ class KeywordRiskDetector:
             "violations": ", ".join(sorted(violations))
         }
 
+# ============================================================
+# SENTIMENT ANALYZER
+# ============================================================
+
 class SimpleSentimentAnalyzer:
-    """Phân tích sentiment"""
-    
     def __init__(self):
         self.keyword_detector = KeywordRiskDetector()
         self.positive_words = ['tăng', 'tăng trưởng', 'lợi nhuận', 'thành công', 'tốt', 'cao', 'mạnh', 'vượt']
@@ -299,9 +290,11 @@ class SimpleSentimentAnalyzer:
             "violations": keyword_analysis["violations"]
         }
 
+# ============================================================
+# STOCK SCRAPER
+# ============================================================
+
 class StockScraperWeb:
-    """Scraper với stock list từ file"""
-    
     def __init__(self, stock_df, time_filter_hours=24):
         self.headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -316,22 +309,19 @@ class StockScraperWeb:
         
         self.sentiment_analyzer = SimpleSentimentAnalyzer()
         
-        # Load stock list từ DataFrame
+        # Load stock list
         self.stock_df = stock_df
         self.hnx_stocks = set(stock_df[stock_df['Sàn'] == 'HNX']['Mã CK'].tolist())
         self.upcom_stocks = set(stock_df[stock_df['Sàn'] == 'UPCoM']['Mã CK'].tolist())
         
-        # Tạo dict: mã → tên công ty (cho tìm kiếm theo tên)
         self.code_to_name = dict(zip(stock_df['Mã CK'], stock_df['Tên công ty']))
         
-        # Tạo dict: tên → mã (lowercase để search)
         self.name_to_code = {}
         for code, name in self.code_to_name.items():
             if name:
-                # Tách từ trong tên công ty
                 words = name.lower().split()
                 for word in words:
-                    if len(word) > 3:  # Bỏ qua từ quá ngắn
+                    if len(word) > 3:
                         if word not in self.name_to_code:
                             self.name_to_code[word] = []
                         self.name_to_code[word].append(code)
@@ -353,74 +343,129 @@ class StockScraperWeb:
         }
     
     def clean_text(self, text):
+        """Làm sạch text - từ V1.0"""
         if not text:
             return ""
         text = re.sub(r'[^\w\s.,;:!?()%\-\+\/\"\'àáảãạăắằẳẵặâấầẩẫậèéẻẽẹêếềểễệìíỉĩịòóỏõọôốồổỗộơớờởỡợùúủũụưứừửữựỳýỷỹỵđÀÁẢÃẠĂẮẰẲẴẶÂẤẦẨẪẬÈÉẺẼẸÊẾỀỂỄỆÌÍỈĨỊÒÓỎÕỌÔỐỒỔỖỘƠỚỜỞỠỢÙÚỦŨỤƯỨỪỬỮỰỲÝỶỸỴĐ]', ' ', text)
         text = re.sub(r'\s+', ' ', text)
         return text.strip()
     
+    def advanced_summarize(self, content, title, max_sentences=4):
+        """Tóm tắt EXTRACTIVE - từ V1.0"""
+        content = self.clean_text(content)
+        title = self.clean_text(title)
+        
+        if not content or len(content) < 100:
+            return content
+        
+        full_text = title + ". " + content
+        sentences = re.split(r'[.!?]+', full_text)
+        sentences = [s.strip() for s in sentences if len(s.strip()) > 30]
+        
+        if len(sentences) <= max_sentences:
+            return '. '.join(sentences) + '.'
+        
+        important_keywords = {
+            'tăng': 3, 'giảm': 3, 'tăng trưởng': 3,
+            'lợi nhuận': 4, 'doanh thu': 4, 'lỗ': 3,
+            'tỷ đồng': 3, 'nghìn tỷ': 4,
+            'cổ phiếu': 3, 'niêm yết': 3,
+            'giao dịch': 2, 'thanh khoản': 3,
+            'quý': 3, 'năm': 2,
+            'phát hành': 3, 'trái phiếu': 3,
+            'đầu tư': 2, 'vốn': 3,
+        }
+        
+        scored_sentences = []
+        for i, sentence in enumerate(sentences):
+            score = 0
+            sentence_lower = sentence.lower()
+            
+            if i == 0:
+                score += 5
+            elif i == 1:
+                score += 3
+            elif i < 5:
+                score += 1
+            
+            for keyword, weight in important_keywords.items():
+                if keyword in sentence_lower:
+                    score += weight
+            
+            numbers = re.findall(r'\d+(?:[.,]\d+)*', sentence)
+            if numbers:
+                score += len(numbers)
+                if any(num for num in numbers if len(num.replace('.', '').replace(',', '')) >= 4):
+                    score += 2
+            
+            if '%' in sentence:
+                score += 3
+            
+            word_count = len(sentence.split())
+            if 12 <= word_count <= 35:
+                score += 2
+            elif word_count < 8 or word_count > 50:
+                score -= 1
+            
+            for code in list(self.hnx_stocks) + list(self.upcom_stocks):
+                if code in sentence.upper():
+                    score += 3
+                    break
+            
+            scored_sentences.append((sentence, score, i))
+        
+        scored_sentences.sort(key=lambda x: x[1], reverse=True)
+        top_sentences = scored_sentences[:max_sentences]
+        top_sentences.sort(key=lambda x: x[2])
+        
+        summary = '. '.join([s[0] for s in top_sentences])
+        if not summary.endswith('.'):
+            summary += '.'
+        
+        summary = self.clean_text(summary)
+        return summary
+    
     def extract_stock(self, text):
-        """
-        Trích xuất mã CK - TÌM THEO MÃ VÀ TÊN
-        Priority:
-        1. Tìm theo mã CK
-        2. Nếu không có, tìm theo tên công ty
-        """
+        """Trích xuất mã CK"""
         text_upper = text.upper()
         text_lower = text.lower()
         
-        # Blacklist
         blacklist_patterns = [
             r'CHỨNG KHOÁN\s+\w+\s+CÓ\s+NHẬN ĐỊNH',
-            r'CHỨNG KHOÁN\s+\w+\s+DỰ BÁO',
-            r'CHỨNG KHOÁN\s+\w+\s+PHÂN TÍCH',
             r'CÔNG TY\s+CHỨNG KHOÁN',
             r'CTCK\s+\w+',
             r'VN-INDEX',
-            r'HNX-INDEX',
-            r'UPCOM-INDEX',
         ]
         
         for pattern in blacklist_patterns:
             if re.search(pattern, text_upper):
                 return None, None, None
         
-        # METHOD 1: Tìm theo MÃ CK
+        # Tìm theo mã
         for code in self.hnx_stocks:
             match = re.search(r'\b' + code + r'\b', text_upper)
             if match:
                 context = text_upper[max(0, match.start()-10):match.end()+10]
-                
                 if re.search(r'CHỨNG KHOÁN\s+' + code, context):
                     continue
-                if re.search(r'CTCK\s+' + code, context):
-                    continue
-                
                 return code, 'HNX', 'code'
         
         for code in self.upcom_stocks:
             match = re.search(r'\b' + code + r'\b', text_upper)
             if match:
                 context = text_upper[max(0, match.start()-10):match.end()+10]
-                
                 if re.search(r'CHỨNG KHOÁN\s+' + code, context):
                     continue
-                if re.search(r'CTCK\s+' + code, context):
-                    continue
-                
                 return code, 'UPCoM', 'code'
         
-        # METHOD 2: Tìm theo TÊN CÔNG TY
-        # Tách từ trong text
+        # Tìm theo tên
         words = text_lower.split()
         matched_codes = []
-        
         for word in words:
             if len(word) > 3 and word in self.name_to_code:
                 matched_codes.extend(self.name_to_code[word])
         
         if matched_codes:
-            # Lấy mã xuất hiện nhiều nhất
             from collections import Counter
             most_common = Counter(matched_codes).most_common(1)[0][0]
             exchange = self.stock_to_exchange.get(most_common)
@@ -439,8 +484,56 @@ class StockScraperWeb:
                     time.sleep(1)
                 return None
     
+    def fetch_article_content(self, url):
+        """Lấy nội dung bài viết - từ V1.0"""
+        try:
+            response = self.fetch_url(url)
+            if not response:
+                return None, None, None
+            
+            response.encoding = 'utf-8'
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # Tìm ngày
+            date_text = None
+            for pattern in [
+                {'class': re.compile(r'date|time|publish', re.I)},
+                {'itemprop': 'datePublished'}
+            ]:
+                date_elem = soup.find(['time', 'span', 'div'], pattern)
+                if date_elem:
+                    date_text = date_elem.get('datetime') or date_elem.get_text(strip=True)
+                    break
+            
+            # Parse ngày (GMT+7)
+            article_date_str = datetime.now(self.vietnam_tz).strftime('%d/%m/%Y')
+            article_date_obj = datetime.now(self.vietnam_tz)
+            
+            # Tìm nội dung
+            content = ""
+            for selector in [
+                ('article', {}),
+                ('div', {'class': re.compile(r'content|article|detail', re.I)}),
+            ]:
+                content_div = soup.find(selector[0], selector[1])
+                if content_div:
+                    paragraphs = content_div.find_all('p')
+                    content = ' '.join([p.get_text(strip=True) for p in paragraphs if len(p.get_text(strip=True)) > 50])
+                    if content:
+                        break
+            
+            if not content:
+                paragraphs = soup.find_all('p')
+                valid_p = [p.get_text(strip=True) for p in paragraphs if 50 < len(p.get_text(strip=True)) < 1000]
+                content = ' '.join(valid_p[:8])
+            
+            content = self.clean_text(content)
+            return content, article_date_str, article_date_obj
+        
+        except:
+            return None, None, None
+    
     def scrape_source(self, url, source_name, pattern, max_articles=20, progress_callback=None):
-        """Cào từ một nguồn"""
         try:
             response = self.fetch_url(url)
             if not response:
@@ -451,7 +544,6 @@ class StockScraperWeb:
             
             count = 0
             seen = set()
-            
             links = soup.find_all('a', href=True)
             total_links = len(links)
             
@@ -474,17 +566,25 @@ class StockScraperWeb:
                         if stock_code and exchange in ['HNX', 'UPCoM']:
                             full_link = urljoin(url, href)
                             
-                            # Track method
                             if match_method == 'code':
                                 self.stats['found_by_code'] += 1
                             else:
                                 self.stats['found_by_name'] += 1
                             
-                            # Lấy tên công ty
                             company_name = self.code_to_name.get(stock_code, '')
                             
-                            # Sentiment analysis
-                            sentiment_result = self.sentiment_analyzer.analyze_sentiment(title, "")
+                            # FETCH NỘI DUNG ĐẦY ĐỦ
+                            content, article_date_str, article_date_obj = self.fetch_article_content(full_link)
+                            
+                            if content:
+                                # TÓM TẮT
+                                summary = self.advanced_summarize(content, title, max_sentences=4)
+                            else:
+                                content = ""
+                                summary = title  # Fallback nếu không lấy được content
+                            
+                            # SENTIMENT
+                            sentiment_result = self.sentiment_analyzer.analyze_sentiment(title, content)
                             
                             if exchange == 'HNX':
                                 self.stats['hnx_found'] += 1
@@ -499,7 +599,7 @@ class StockScraperWeb:
                             self.all_articles.append({
                                 'Tiêu đề': title,
                                 'Link': full_link,
-                                'Ngày': datetime.now(self.vietnam_tz).strftime('%d/%m/%Y'),
+                                'Ngày': article_date_str,
                                 'Mã CK': stock_code,
                                 'Tên công ty': company_name,
                                 'Sàn': exchange,
@@ -508,10 +608,12 @@ class StockScraperWeb:
                                 'Risk': sentiment_result['risk_level'],
                                 'Vi phạm': sentiment_result['violations'],
                                 'Keywords': "; ".join([k['keyword'] for k in sentiment_result['keywords'][:3]]),
+                                'Nội dung tóm tắt': summary,  # ← CỘT MỚI
                                 'Tìm theo': 'Mã CK' if match_method == 'code' else 'Tên công ty'
                             })
                             
                             count += 1
+                            time.sleep(0.5)
                             
                             if count >= max_articles:
                                 break
@@ -523,7 +625,6 @@ class StockScraperWeb:
             return 0
     
     def run(self, max_articles_per_source=20, progress_callback=None):
-        """Chạy scraper"""
         sources = [
             ("https://cafef.vn/thi-truong-chung-khoan.chn", "CafeF", lambda h: '.chn' in h),
             ("https://vietstock.vn/chung-khoan.htm", "VietStock", lambda h: re.search(r'/\d{4}/\d{2}/.+\.htm', h)),
@@ -547,17 +648,14 @@ class StockScraperWeb:
 # ============================================================
 
 def main():
-    # Header
-    st.markdown('<div class="main-header">📈 TOOL CÀO TIN V2.2</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sub-header">HNX & UPCoM - Upload Danh Sách Mã CK</div>', unsafe_allow_html=True)
+    st.markdown('<div class="main-header">📈 TOOL CÀO TIN V2.4</div>', unsafe_allow_html=True)
+    st.markdown('<div style="text-align:center;color:#666;margin-bottom:2rem;">HNX & UPCoM - Upload + Summarize + Sentiment</div>', unsafe_allow_html=True)
     
     # Sidebar
     with st.sidebar:
         st.header("⚙️ CÀI ĐẶT")
         
-        # UPLOAD STOCK LIST
         st.subheader("📂 DANH SÁCH MÃ CK")
-        
         st.markdown('<div class="upload-box">', unsafe_allow_html=True)
         st.write("**Upload file Excel/CSV**")
         st.caption("Gồm 3 cột: Mã CK | Sàn | Tên công ty")
@@ -568,7 +666,6 @@ def main():
             help="File phải có các cột: Mã CK, Sàn (HNX/UPCoM), Tên công ty"
         )
         
-        # Download sample
         sample_excel = create_sample_excel()
         st.download_button(
             label="📥 Tải file mẫu",
@@ -578,7 +675,6 @@ def main():
         )
         st.markdown('</div>', unsafe_allow_html=True)
         
-        # Parse uploaded file
         if uploaded_file is not None:
             stock_df, error = parse_stock_file(uploaded_file)
             
@@ -589,7 +685,6 @@ def main():
                 st.success(f"✅ Đã load {len(stock_df)} mã CK")
                 st.session_state['stock_df'] = stock_df
                 
-                # Hiển thị thống kê
                 hnx_count = len(stock_df[stock_df['Sàn'] == 'HNX'])
                 upcom_count = len(stock_df[stock_df['Sàn'] == 'UPCoM'])
                 st.info(f"HNX: {hnx_count} | UPCoM: {upcom_count}")
@@ -599,8 +694,6 @@ def main():
                 st.warning("⚠️ Đang dùng danh sách mặc định")
         
         st.markdown("---")
-        
-        # Cài đặt cào tin
         st.subheader("🔧 TÙY CHỈNH")
         
         time_filter = st.selectbox(
@@ -630,7 +723,6 @@ def main():
             return
         
         with st.spinner("Đang cào tin..."):
-            # Progress
             progress_bar = st.progress(0)
             status_text = st.empty()
             
@@ -638,7 +730,6 @@ def main():
                 status_text.text(message)
                 progress_bar.progress(progress)
             
-            # Run scraper
             scraper = StockScraperWeb(stock_df, time_filter_hours=time_filter)
             df = scraper.run(max_articles_per_source=max_articles, progress_callback=update_progress)
             
@@ -647,11 +738,8 @@ def main():
             
             if df is not None:
                 st.success(f"✅ Hoàn tất! Tìm thấy {len(df)} bài viết")
-                
-                # Hiển thị thống kê matching method
                 st.info(f"🔍 Tìm theo mã CK: {scraper.stats['found_by_code']} | Tìm theo tên: {scraper.stats['found_by_name']}")
                 
-                # Store in session
                 st.session_state['df'] = df
                 st.session_state['stats'] = scraper.stats
             else:
@@ -678,15 +766,12 @@ def main():
         # Download button
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-            # Sheet 1: Tất cả
             df.to_excel(writer, index=False, sheet_name='Tất cả')
             
-            # Sheet 2: Nghiêm trọng
             df_severe = df[df['Risk'] == 'Nghiêm trọng']
             if len(df_severe) > 0:
                 df_severe.to_excel(writer, index=False, sheet_name='Nghiêm trọng')
             
-            # Sheet 3: Cảnh báo
             df_warning = df[df['Risk'] == 'Cảnh báo']
             if len(df_warning) > 0:
                 df_warning.to_excel(writer, index=False, sheet_name='Cảnh báo')
@@ -737,7 +822,6 @@ def main():
         st.subheader("📰 DANH SÁCH BÀI VIẾT")
         
         for idx, row in df_filtered.iterrows():
-            # Card color
             if row['Risk'] == 'Nghiêm trọng':
                 card_class = "severe-card"
                 icon = "⚠️"
@@ -757,7 +841,6 @@ def main():
                 col1, col2 = st.columns([4, 1])
                 
                 with col1:
-                    # Tiêu đề với mã và tên công ty
                     if row['Tên công ty']:
                         st.markdown(f"**{icon} {row['Mã CK']} - {row['Tên công ty']} ({row['Sàn']})**")
                     else:
@@ -778,6 +861,11 @@ def main():
                 with col2:
                     if st.button("🔗 Xem", key=f"view_{idx}"):
                         st.markdown(f"[Mở bài viết]({row['Link']})")
+                
+                # HIỂN THỊ TÓM TẮT
+                if pd.notna(row['Nội dung tóm tắt']) and row['Nội dung tóm tắt']:
+                    with st.expander("📝 Xem tóm tắt"):
+                        st.write(row['Nội dung tóm tắt'])
                 
                 if row['Keywords']:
                     st.info(f"🔑 Keywords: {row['Keywords']}")
@@ -813,12 +901,11 @@ def main():
             san_counts = df['Sàn'].value_counts()
             st.bar_chart(san_counts)
         
-        # Thống kê chi tiết
+        # Chi tiết theo mã
         st.markdown("---")
         st.subheader("📈 CHI TIẾT THEO MÃ CK")
         
         with st.expander("Xem chi tiết"):
-            # Tạo bảng tổng hợp
             summary = df.groupby('Mã CK').agg({
                 'Tiêu đề': 'count',
                 'Điểm': 'mean',
@@ -829,7 +916,6 @@ def main():
                 'Risk': 'Risk chính'
             }).reset_index()
             
-            # Thêm tên công ty
             summary = summary.merge(
                 df[['Mã CK', 'Tên công ty', 'Sàn']].drop_duplicates(),
                 on='Mã CK',
