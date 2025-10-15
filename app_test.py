@@ -512,7 +512,7 @@ class StockScraperWeb:
                     # Check từ TRƯỚC "TIN"
                     if match.start() >= 5:
                         prev_words = text_upper[match.start()-15:match.start()]
-                        if re.search(r'(NHẬN|THEO|MỘT|CÁC|NHIỀU)\s*$'
+                        if re.search(r'(NHẬN|THEO|MỘT|CÁC|NHIỀU)\s*$'):
     
    def fetch_url(self, url, max_retries=2):
     for attempt in range(max_retries):
@@ -995,7 +995,7 @@ if __name__ == "__main__":
                     # Check từ TRƯỚC "CEO"
                     if match.start() >= 10:
                         prev_words = text_upper[match.start()-20:match.start()]
-                        if re.search(r'(GIÁM\s+ĐỐC|TỔNG\s+GIÁM\s+ĐỐC)\s*$'
+                        if re.search(r'(GIÁM\s+ĐỐC|TỔNG\s+GIÁM\s+ĐỐC)\s*$'):
     
     def fetch_url(self, url, max_retries=2):
         for attempt in range(max_retries):
@@ -1485,7 +1485,7 @@ if __name__ == "__main__":
                 if code == 'TIN':
                     if match.start() >= 5:
                         prev_words = text_upper[match.start()-15:match.start()]
-                        if re.search(r'(NHẬN|THEO|MỘT|CÁC|NHIỀU)\s*$'
+                        if re.search(r'(NHẬN|THEO|MỘT|CÁC|NHIỀU)\s*$'):
     
     def fetch_url(self, url, max_retries=2):
         for attempt in range(max_retries):
@@ -1960,7 +1960,7 @@ if __name__ == "__main__":
                             continue
                     if match.start() >= 10:
                         prev_words = text_upper[match.start()-20:match.start()]
-                        if re.search(r'(GIÁM\s+ĐỐC|TỔNG\s+GIÁM\s+ĐỐC)\s*$'
+                        if re.search(r'(GIÁM\s+ĐỐC|TỔNG\s+GIÁM\s+ĐỐC)\s*$'):
     
     def fetch_url(self, url, max_retries=2):
         for attempt in range(max_retries):
