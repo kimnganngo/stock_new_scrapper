@@ -667,7 +667,7 @@ class StockScraperWeb:
             st.error(f"Lỗi {source_name}: {str(e)}")
             return 0
     
-    def run(self, max_articles_per_source=20, progress_callback=None):
+    def run(self, max_articles_per_source=50, progress_callback=None):
         sources = [
             ("https://cafef.vn/thi-truong-chung-khoan.chn", "CafeF", lambda h: '.chn' in h),
             ("https://vietstock.vn/chung-khoan.htm", "VietStock", lambda h: re.search(r'/\d{4}/\d{2}/.+\.htm', h)),
