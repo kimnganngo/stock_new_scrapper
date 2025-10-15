@@ -691,7 +691,7 @@ class StockScraperWeb:
 # ============================================================
 
 def main():
-    st.markdown('<div class="main-header">📈 TOOL CÀO TIN V2.4</div>', unsafe_allow_html=True)
+    st.markdown('<div class="main-header">📈 TOOL THU THẬP TIN ĐỒN 2.0 </div>', unsafe_allow_html=True)
     st.markdown('<div style="text-align:center;color:#666;margin-bottom:2rem;">HNX & UPCoM </div>', unsafe_allow_html=True)
     
     # Sidebar
