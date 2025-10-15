@@ -993,7 +993,7 @@ if __name__ == "__main__":
                     # Check từ TRƯỚC "CEO"
                     if match.start() >= 10:
                         prev_words = text_upper[match.start()-20:match.start()]
-                        if re.search(r'(GIÁM\s+ĐỐC|TỔNG\s+GIÁM\s+ĐỐC)\s*
+                        if re.search(r'(GIÁM\s+ĐỐC|TỔNG\s+GIÁM\s+ĐỐC)\s*$' 
     
     def fetch_url(self, url, max_retries=2):
         for attempt in range(max_retries):
