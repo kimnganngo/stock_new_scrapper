@@ -512,9 +512,8 @@ class StockScraperWeb:
                     # Check từ TRƯỚC "TIN"
                     if match.start() >= 5:
                         prev_words = text_upper[match.start()-15:match.start()]
-                        if re.search(r'(NHẬN|THEO|MỘT|CÁC|NHIỀU)\s*$'):
-    
-   def fetch_url(self, url, max_retries=2):
+                        if re.search(r'(NHẬN|THEO|MỘT|CÁC|NHIỀU)\s*$'):    
+    def fetch_url(self, url, max_retries=2):
     for attempt in range(max_retries):
         try:
             response = self.session.get(url, headers=self.headers, timeout=15)
