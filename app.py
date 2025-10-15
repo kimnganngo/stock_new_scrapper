@@ -22,7 +22,7 @@ import io
 # ============================================================
 
 st.set_page_config(
-    page_title="Thu thập tin đồn 2.0",
+    page_title="Cào Tin Chứng Khoán V2.4",
     page_icon="📈",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -690,7 +690,7 @@ class StockScraperWeb:
 
 def main():
     st.markdown('<div class="main-header">📈 TOOL CÀO TIN V2.4</div>', unsafe_allow_html=True)
-    st.markdown('<div style="text-align:center;color:#666;margin-bottom:2rem;">HNX & UPCoM </div>', unsafe_allow_html=True)
+    st.markdown('<div style="text-align:center;color:#666;margin-bottom:2rem;">HNX & UPCoM - Upload + Summarize + Sentiment</div>', unsafe_allow_html=True)
     
     # Sidebar
     with st.sidebar:
@@ -1170,8 +1170,8 @@ if __name__ == "__main__":
 # ============================================================
 
 def main():
-    st.markdown('<div class="main-header">📈 TOOL CÀO TIN V2.4</div>', unsafe_allow_html=True)
-    st.markdown('<div style="text-align:center;color:#666;margin-bottom:2rem;">HNX & UPCoM - Upload + Summarize + Sentiment</div>', unsafe_allow_html=True)
+    st.markdown('<div class="main-header">📈 TOOL THU THẬP TIN 2.0 </div>', unsafe_allow_html=True)
+    st.markdown('<div style="text-align:center;color:#666;margin-bottom:2rem;">HNX & UPCoM </div>', unsafe_allow_html=True)
     
     # Sidebar
     with st.sidebar:
