@@ -22,7 +22,7 @@ import io
 # ============================================================
 
 st.set_page_config(
-    page_title="Cào Tin Chứng Khoán V2.4",
+    page_title="Thu thập tin đôn 2.0",
     page_icon="📈",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -430,11 +430,31 @@ class StockScraperWeb:
         text_upper = text.upper()
         text_lower = text.lower()
         
+        # BLACKLIST - Mở rộng
         blacklist_patterns = [
+            # Tin tổng quan thị trường
             r'CHỨNG KHOÁN\s+\w+\s+CÓ\s+NHẬN ĐỊNH',
+            r'CHỨNG KHOÁN\s+\w+\s+DỰ BÁO',
+            r'CHỨNG KHOÁN\s+\w+\s+PHÂN TÍCH',
             r'CÔNG TY\s+CHỨNG KHOÁN',
             r'CTCK\s+\w+',
+            
+            # Index
             r'VN-INDEX',
+            r'HNX-INDEX',
+            r'UPCOM-INDEX',
+            
+            # Top cổ phiếu (tránh nhầm với mã TOP)
+            r'TOP\s+CỔ\s+PHIẾU',
+            r'TOP\s+\d+',  # Top 5, Top 10...
+            r'TOP\s+MÃ',
+            
+            # Tổng quan
+            r'THỊ TRƯỜNG CHUNG',
+            r'DIỄN BIẾN THỊ TRƯỜNG',
+            r'TỔNG QUAN THỊ TRƯỜNG',
+            r'ĐIỂM TIN',
+            r'BẢN TIN',
         ]
         
         for pattern in blacklist_patterns:
@@ -446,16 +466,39 @@ class StockScraperWeb:
             match = re.search(r'\b' + code + r'\b', text_upper)
             if match:
                 context = text_upper[max(0, match.start()-10):match.end()+10]
+                
+                # Check context xung quanh
                 if re.search(r'CHỨNG KHOÁN\s+' + code, context):
                     continue
+                if re.search(r'CTCK\s+' + code, context):
+                    continue
+                
+                # ĐẶC BIỆT: Check mã "TOP"
+                if code == 'TOP':
+                    # Chỉ nhận nếu "TOP" đứng đầu câu hoặc sau dấu câu
+                    if match.start() > 0:
+                        prev_char = text_upper[match.start()-1]
+                        # Nếu trước "TOP" là chữ hoặc số → bỏ qua
+                        if prev_char.isalnum():
+                            continue
+                    # Nếu sau "TOP" là số hoặc "cổ phiếu" → bỏ qua
+                    if match.end() < len(text_upper) - 1:
+                        next_chars = text_upper[match.end():match.end()+15]
+                        if re.match(r'\s+\d+', next_chars) or re.match(r'\s+CỔ', next_chars):
+                            continue
+                
                 return code, 'HNX', 'code'
         
         for code in self.upcom_stocks:
             match = re.search(r'\b' + code + r'\b', text_upper)
             if match:
                 context = text_upper[max(0, match.start()-10):match.end()+10]
+                
                 if re.search(r'CHỨNG KHOÁN\s+' + code, context):
                     continue
+                if re.search(r'CTCK\s+' + code, context):
+                    continue
+                
                 return code, 'UPCoM', 'code'
         
         # Tìm theo tên
@@ -649,7 +692,7 @@ class StockScraperWeb:
 
 def main():
     st.markdown('<div class="main-header">📈 TOOL CÀO TIN V2.4</div>', unsafe_allow_html=True)
-    st.markdown('<div style="text-align:center;color:#666;margin-bottom:2rem;">HNX & UPCoM - Upload + Summarize + Sentiment</div>', unsafe_allow_html=True)
+    st.markdown('<div style="text-align:center;color:#666;margin-bottom:2rem;">HNX & UPCoM</div>', unsafe_allow_html=True)
     
     # Sidebar
     with st.sidebar:
