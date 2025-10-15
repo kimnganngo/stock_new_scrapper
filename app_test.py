@@ -1070,8 +1070,6 @@ def main():
                 use_container_width=True,
                 hide_index=True
             )
-
-                            continue
                     
                     # Check từ SAU "TIN"
                     if match.end() < len(text_upper) - 5:
