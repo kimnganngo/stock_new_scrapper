@@ -553,18 +553,18 @@ class StockScraperWeb:
             
             # Parse ngày (GMT+7)
             article_date_obj = datetime.now(self.vietnam_tz)
-article_date_str = datetime.now(self.vietnam_tz).strftime('%d/%m/%Y')
-# Try to parse publication date if available
-try:
-    if 'date_text' in locals() and date_text:
-        dt = dateparser.parse(date_text)
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=self.vietnam_tz)
-        dt = dt.astimezone(self.vietnam_tz)
-        article_date_obj = dt
-        article_date_str = article_date_obj.strftime('%d/%m/%Y %H:%M')
-except Exception:
-    pass
+            article_date_str = datetime.now(self.vietnam_tz).strftime('%d/%m/%Y')
+            # Try to parse publication date if available
+            try:
+                if 'date_text' in locals() and date_text:
+                    dt = dateparser.parse(date_text)
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=self.vietnam_tz)
+                    dt = dt.astimezone(self.vietnam_tz)
+                    article_date_obj = dt
+                    article_date_str = article_date_obj.strftime('%d/%m/%Y %H:%M')
+            except Exception:
+                pass
             # Tìm nội dung
             content = ""
             for selector in [
