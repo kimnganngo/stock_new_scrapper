@@ -426,6 +426,150 @@ class StockScraperWeb:
         summary = self.clean_text(summary)
         return summary
     
+    
+    def extract_stock(self, text):
+        """Trích xuất mã CK với kiểm tra ngữ cảnh để tránh trùng từ phổ biến (TIN, CEO, THU, ...)."""
+        if not text:
+            return None, None, None
+
+        original = text
+        text_upper = original.upper()
+        text_lower = original.lower()
+
+        # Tập từ khóa ngữ cảnh tài chính để xác nhận mã xuất hiện "đúng chỗ"
+        context_keywords = [
+            r"mã\s*ck", r"\bcổ\s*phiếu\b", r"\bcp\b", r"\bmã\b", r"\bticker\b",
+            r"\bgiá\b", r"\btăng\b", r"\bgiảm\b", r"\bkhớp\s*lệnh\b", r"\bgiao\s*dịch\b",
+            r"\bniêm\s*yết\b", r"\bho(se)?\b", r"\bhnx\b", r"\bupcom\b", r"\bsàn\b"
+        ]
+        ctx_re = re.compile("|".join(context_keywords), flags=re.I | re.U)
+
+        # Hàm kiểm tra một mã có hợp lệ trong ngữ cảnh tiêu đề
+        def valid_match(code):
+            # r'\bCODE\b' với biên giới chữ-số để tránh dính vào từ dài
+            for m in re.finditer(r"\b" + re.escape(code) + r"\b", text_upper):
+                start, end = m.start(), m.end()
+                orig_seg = original[start:end]
+
+                # 1) Nếu đoạn gốc không phải chữ hoa (vd 'tin' thường), khả năng cao là từ thông dụng → bỏ
+                if not orig_seg.isupper():
+                    # chỉ chấp nhận nếu gần có từ khóa ngữ cảnh
+                    window = original[max(0, start-20):min(len(original), end+20)]
+                    if not ctx_re.search(window):
+                        continue
+
+                # 2) Với các mã ngắn/đa nghĩa (<=3 ký tự) yêu cầu ngữ cảnh mạnh hơn
+                if len(code) <= 3:
+                    window = original[max(0, start-20):min(len(original), end+20)]
+                    if not ctx_re.search(window):
+                        # Cho phép nếu đi kèm dấu ngoặc hoặc dấu ':' ngay trước/sau
+                        around = text_upper[max(0, start-1):min(len(text_upper), end+1)]
+                        if not (around.startswith("(") or around.endswith(")") or ":" in around):
+                            continue
+
+                return True
+            return False
+
+        # 1) Ưu tiên match theo mã (HNX/UPCoM)
+        for code in list(self.hnx_stocks) + list(self.upcom_stocks):
+            if valid_match(code):
+                exchange = self.stock_to_exchange.get(code, None)
+                if exchange:
+                    return code, exchange, 'code'
+
+        # 2) Rơi về match theo tên công ty (cẩn thận hơn: yêu cầu khớp >=2 từ khóa tên, hoặc 1 từ khóa + ngữ cảnh)
+        matched = []
+        for name, codes in self.name_to_code.items():
+            if len(name) <= 3:
+                continue
+            # chỉ xét những "name" dài (từ >=4 ký tự) để giảm nhiễu
+            if re.search(r"\b" + re.escape(name) + r"\b", text_lower):
+                matched.extend(codes)
+
+        # Nếu có nhiều mã trùng tên, giữ lại mã mà trong tiêu đề cũng thấy ngữ cảnh
+        for code in matched:
+            if valid_match(code) or ctx_re.search(original):
+                exchange = self.stock_to_exchange.get(code, None)
+                if exchange:
+                    return code, exchange, 'name'
+
+        return None, None, None
+
+    def advanced_summarize(self, content, title, max_sentences=4):
+        """Tóm tắt EXTRACTIVE - từ V1.0"""
+        content = self.clean_text(content)
+        title = self.clean_text(title)
+        
+        if not content or len(content) < 100:
+            return content
+        
+        full_text = title + ". " + content
+        sentences = re.split(r'[.!?]+', full_text)
+        sentences = [s.strip() for s in sentences if len(s.strip()) > 30]
+        
+        if len(sentences) <= max_sentences:
+            return '. '.join(sentences) + '.'
+        
+        important_keywords = {
+            'tăng': 3, 'giảm': 3, 'tăng trưởng': 3,
+            'lợi nhuận': 4, 'doanh thu': 4, 'lỗ': 3,
+            'tỷ đồng': 3, 'nghìn tỷ': 4,
+            'cổ phiếu': 3, 'niêm yết': 3,
+            'giao dịch': 2, 'thanh khoản': 3,
+            'quý': 3, 'năm': 2,
+            'phát hành': 3, 'trái phiếu': 3,
+            'đầu tư': 2, 'vốn': 3,
+        }
+        
+        scored_sentences = []
+        for i, sentence in enumerate(sentences):
+            score = 0
+            sentence_lower = sentence.lower()
+            
+            if i == 0:
+                score += 5
+            elif i == 1:
+                score += 3
+            elif i < 5:
+                score += 1
+            
+            for keyword, weight in important_keywords.items():
+                if keyword in sentence_lower:
+                    score += weight
+            
+            numbers = re.findall(r'\d+(?:[.,]\d+)*', sentence)
+            if numbers:
+                score += len(numbers)
+                if any(num for num in numbers if len(num.replace('.', '').replace(',', '')) >= 4):
+                    score += 2
+            
+            if '%' in sentence:
+                score += 3
+            
+            word_count = len(sentence.split())
+            if 12 <= word_count <= 35:
+                score += 2
+            elif word_count < 8 or word_count > 50:
+                score -= 1
+            
+            for code in list(self.hnx_stocks) + list(self.upcom_stocks):
+                if code in sentence.upper():
+                    score += 3
+                    break
+            
+            scored_sentences.append((sentence, score, i))
+        
+        scored_sentences.sort(key=lambda x: x[1], reverse=True)
+        top_sentences = scored_sentences[:max_sentences]
+        top_sentences.sort(key=lambda x: x[2])
+        
+        summary = '. '.join([s[0] for s in top_sentences])
+        if not summary.endswith('.'):
+            summary += '.'
+        
+        summary = self.clean_text(summary)
+        return summary
+    
     def extract_stock(self, text):
         """Trích xuất mã CK"""
         text_upper = text.upper()
@@ -552,8 +696,8 @@ class StockScraperWeb:
                     break
             
             # Parse ngày (GMT+7)
-            article_date_obj = datetime.now(self.vietnam_tz)
-            article_date_str = datetime.now(self.vietnam_tz).strftime('%d/%m/%Y')
+            article_date_obj = None
+            article_date_str = None
             # Try to parse publication date if available
             try:
                 if 'date_text' in locals() and date_text:
@@ -565,6 +709,8 @@ class StockScraperWeb:
                     article_date_str = article_date_obj.strftime('%d/%m/%Y %H:%M')
             except Exception:
                 pass
+            if article_date_obj is None:
+                article_date_str = 'Không rõ'
             # Tìm nội dung
             content = ""
             for selector in [
@@ -633,8 +779,11 @@ class StockScraperWeb:
                             content, article_date_str, article_date_obj = self.fetch_article_content(full_link)
                             
                             # Time cutoff filter
-                            if article_date_obj and hasattr(self, 'cutoff_time') and article_date_obj < self.cutoff_time:
-                                continue
+                            if hasattr(self, 'cutoff_time') and self.cutoff_time:
+                                if article_date_obj is None:
+                                    continue
+                                if article_date_obj < self.cutoff_time:
+                                    continue
                             if content:
                                 # TÓM TẮT
                                 summary = self.advanced_summarize(content, title, max_sentences=4)
