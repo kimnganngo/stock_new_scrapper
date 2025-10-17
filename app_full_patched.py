@@ -552,8 +552,8 @@ class StockScraperWeb:
                     break
             
             # Parse ngày (GMT+7)
-            article_date_obj = None
-            article_date_str = None
+            article_date_obj = datetime.now(self.vietnam_tz)
+            article_date_str = datetime.now(self.vietnam_tz).strftime('%d/%m/%Y')
             # Try to parse publication date if available
             try:
                 if 'date_text' in locals() and date_text:
@@ -565,8 +565,6 @@ class StockScraperWeb:
                     article_date_str = article_date_obj.strftime('%d/%m/%Y %H:%M')
             except Exception:
                 pass
-            if article_date_obj is None:
-                article_date_str = 'Không rõ'
             # Tìm nội dung
             content = ""
             for selector in [
@@ -635,11 +633,8 @@ class StockScraperWeb:
                             content, article_date_str, article_date_obj = self.fetch_article_content(full_link)
                             
                             # Time cutoff filter
-                            if hasattr(self, 'cutoff_time') and self.cutoff_time:
-                                if article_date_obj is None:
-                                    continue
-                                if article_date_obj < self.cutoff_time:
-                                    continue
+                            if article_date_obj and hasattr(self, 'cutoff_time') and article_date_obj < self.cutoff_time:
+                                continue
                             if content:
                                 # TÓM TẮT
                                 summary = self.advanced_summarize(content, title, max_sentences=4)
