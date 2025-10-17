@@ -1,3 +1,4 @@
+
 # ============================================================
 # 🎯 STREAMLIT WEB APP V2.4 - UPLOAD + SUMMARIZE
 # ============================================================
@@ -296,7 +297,7 @@ class SimpleSentimentAnalyzer:
 # ============================================================
 
 class StockScraperWeb:
-    def __init__(self, stock_df, time_filter_hours=24):
+    def __init__(self, stock_df, time_mode='preset', time_filter_hours=24, date_from=None, date_to=None):
         self.headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
             'Accept-Language': 'vi-VN,vi;q=0.9,en;q=0.8',
@@ -304,11 +305,18 @@ class StockScraperWeb:
         self.all_articles = []
         self.session = requests.Session()
         self.time_filter_hours = time_filter_hours
+        self.time_mode = time_mode
+        self.date_from = date_from
+        self.date_to = date_to
         
         self.vietnam_tz = timezone(timedelta(hours=7))
-        self.cutoff_time = datetime.now(self.vietnam_tz) - timedelta(hours=time_filter_hours)
-        
-        self.sentiment_analyzer = SimpleSentimentAnalyzer()
+        now_vn = datetime.now(self.vietnam_tz)
+        # compute time window
+        if self.time_mode == 'preset':
+            self.cutoff_time = now_vn - timedelta(hours=time_filter_hours)
+        else:
+            # normalize dates to VN timezone day bounds if provided as date objects/strings
+            self.cutoff_time = Noneself.sentiment_analyzer = SimpleSentimentAnalyzer()
         
         # Load stock list
         self.stock_df = stock_df
@@ -343,6 +351,35 @@ class StockScraperWeb:
             'found_by_name': 0
         }
     
+    
+    def is_in_time_window(self, dt_obj):
+        """Return True if article date passes the time filter."""
+        if not dt_obj:
+            return False
+        if self.time_mode == 'preset':
+            return dt_obj >= self.cutoff_time
+        # range mode
+        try:
+            start = self.date_from
+            end = self.date_to
+            # If inputs are date (no tz/time), convert to VN tz with day bounds
+            if hasattr(start, 'year') and not hasattr(start, 'tzinfo'):
+                # date_input returns datetime.date
+                from datetime import datetime as _dt, time as _time
+                start = _dt.combine(start, _time(0,0)).replace(tzinfo=self.vietnam_tz)
+            if hasattr(end, 'year') and not hasattr(end, 'tzinfo'):
+                from datetime import datetime as _dt, time as _time
+                end = _dt.combine(end, _time(23,59,59)).replace(tzinfo=self.vietnam_tz)
+            if start and end:
+                return (dt_obj >= start) and (dt_obj <= end)
+            elif start and not end:
+                return dt_obj >= start
+            elif end and not start:
+                return dt_obj <= end
+            else:
+                return True
+        except Exception:
+            return True
     def clean_text(self, text):
         """Làm sạch text - từ V1.0"""
         if not text:
@@ -635,7 +672,7 @@ class StockScraperWeb:
                             content, article_date_str, article_date_obj = self.fetch_article_content(full_link)
                             
                             # Time cutoff filter
-                            if article_date_obj and hasattr(self, 'cutoff_time') and article_date_obj < self.cutoff_time:
+                            if not self.is_in_time_window(article_date_obj):
                                 continue
                             if content:
                                 # TÓM TẮT
@@ -755,16 +792,29 @@ def main():
                 st.warning("⚠️ Đang dùng danh sách mặc định")
         
         st.markdown("---")
-        st.subheader("🔧 TÙY CHỈNH")
         
-        time_filter = st.selectbox(
-            "⏰ Khoảng thời gian",
-            options=[6, 12, 24, 48, 72, 168],
-            format_func=lambda x: f"{x} giờ" if x < 168 else "1 tuần",
-            index=2
-        )
-        
-        max_articles = st.slider(
+st.subheader("🔧 TÙY CHỈNH")
+
+time_mode = st.radio("⏱️ Chọn cách lọc thời gian", ["Khoảng thời gian đến hiện tại", "Giai đoạn cụ thể"], horizontal=True)
+date_from = date_to = None
+if time_mode == "Khoảng thời gian đến hiện tại":
+    # Preset hours
+    preset = st.selectbox(
+        "⏰ Khoảng thời gian",
+        options=[6, 12, 24, 72, 168],  # 6h/12h/24h/3 ngày/1 tuần
+        format_func=lambda x: f"{x} giờ" if x < 24 else ("3 ngày" if x == 72 else "1 tuần" if x == 168 else f"{x} giờ"),
+        index=2
+    )
+    time_filter = preset
+else:
+    # Date range
+    col_d1, col_d2 = st.columns(2)
+    with col_d1:
+        date_from = st.date_input("📅 Từ ngày", value=None)
+    with col_d2:
+        date_to = st.date_input("📅 Đến ngày", value=None)
+    time_filter = 24  # dummy fallback; not used in range mode
+max_articles = st.slider(
             "📊 Số bài tối đa/nguồn",
             min_value=5,
             max_value=50,
@@ -791,7 +841,11 @@ def main():
                 status_text.text(message)
                 progress_bar.progress(progress)
             
-            scraper = StockScraperWeb(stock_df, time_filter_hours=time_filter)
+            scraper = StockScraperWeb(stock_df,
+                                 time_mode=('preset' if time_mode == 'Khoảng thời gian đến hiện tại' else 'range'),
+                                 time_filter_hours=time_filter,
+                                 date_from=date_from,
+                                 date_to=date_to)
             df = scraper.run(max_articles_per_source=max_articles, progress_callback=update_progress)
             
             progress_bar.empty()
