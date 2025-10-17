@@ -777,7 +777,7 @@ def main():
                 progress_bar.progress(progress)
             
             scraper = StockScraperWeb(stock_df, time_filter_hours=time_filter)
-            df = scraper.run(max_articles_per_source=max_articles, progress_callback=update_progress)
+            df = scraper.run(progress_callback=update_progress)
             
             progress_bar.empty()
             status_text.empty()
