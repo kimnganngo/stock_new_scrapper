@@ -792,37 +792,45 @@ def main():
         
         st.markdown("---")
         
-st.subheader("🔧 TÙY CHỈNH")
+    st.subheader("🔧 TÙY CHỈNH")
 
-time_mode = st.radio("⏱️ Chọn cách lọc thời gian", ["Khoảng thời gian đến hiện tại", "Giai đoạn cụ thể"], horizontal=True)
-date_from = date_to = None
-if time_mode == "Khoảng thời gian đến hiện tại":
-    # Preset hours
-    preset = st.selectbox(
-        "⏰ Khoảng thời gian",
-        options=[6, 12, 24, 72, 168],  # 6h/12h/24h/3 ngày/1 tuần
-        format_func=lambda x: f"{x} giờ" if x < 24 else ("3 ngày" if x == 72 else "1 tuần" if x == 168 else f"{x} giờ"),
-        index=2
+    time_mode = st.radio(
+        "⏱️ Chọn cách lọc thời gian",
+        ["Khoảng thời gian đến hiện tại", "Giai đoạn cụ thể"],
+        horizontal=True
     )
-    time_filter = preset
-else:
-    # Date range
-    col_d1, col_d2 = st.columns(2)
-    with col_d1:
-        date_from = st.date_input("📅 Từ ngày", value=None)
-    with col_d2:
-        date_to = st.date_input("📅 Đến ngày", value=None)
-    time_filter = 24  # dummy fallback; not used in range mode
-max_articles = st.slider(
-            "📊 Số bài tối đa/nguồn",
-            min_value=5,
-            max_value=50,
-            value=20,
-            step=5
+    date_from = date_to = None
+
+    if time_mode == "Khoảng thời gian đến hiện tại":
+        # Preset hours
+        preset = st.selectbox(
+            "⏰ Khoảng thời gian",
+            options=[6, 12, 24, 72, 168],  # 6h/12h/24h/3 ngày/1 tuần
+            format_func=lambda x: f"{x} giờ" if x < 24 else ("3 ngày" if x == 72 else "1 tuần" if x == 168 else f"{x} giờ"),
+            index=2
         )
-        
-        st.markdown("---")
-        st.info("💡 **Hướng dẫn:**\n1. Upload danh sách mã\n2. Chọn thời gian\n3. Bấm 'Bắt đầu'\n4. Download Excel")
+        time_filter = preset
+    else:
+        # Date range
+        col_d1, col_d2 = st.columns(2)
+        with col_d1:
+            date_from = st.date_input("📅 Từ ngày", value=None)
+        with col_d2:
+            date_to = st.date_input("📅 Đến ngày", value=None)
+        time_filter = 24  # dummy fallback; not used in range mode
+
+    st.markdown("---")
+    max_articles = st.slider(
+        "📊 Số bài tối đa/nguồn",
+        min_value=5,
+        max_value=50,
+        value=20,
+        step=5
+    )
+
+    st.markdown("---")
+    st.info("💡 **Hướng dẫn:**\\n1. Upload danh sách mã\\n2. Chọn thời gian\\n3. Bấm 'Bắt đầu'\\n4. Download Excel")
+
     
     # Main content
     if st.button("🚀 BẮT ĐẦU CÀO TIN", type="primary"):
