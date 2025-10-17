@@ -1,4 +1,3 @@
-
 # ============================================================
 # 🎯 STREAMLIT WEB APP V2.4 - UPLOAD + SUMMARIZE
 # ============================================================
@@ -316,7 +315,8 @@ class StockScraperWeb:
             self.cutoff_time = now_vn - timedelta(hours=time_filter_hours)
         else:
             # normalize dates to VN timezone day bounds if provided as date objects/strings
-            self.cutoff_time = Noneself.sentiment_analyzer = SimpleSentimentAnalyzer()
+            self.cutoff_time = None
+        self.sentiment_analyzer = SimpleSentimentAnalyzer()
         
         # Load stock list
         self.stock_df = stock_df
@@ -355,7 +355,8 @@ class StockScraperWeb:
     def is_in_time_window(self, dt_obj):
         """Return True if article date passes the time filter."""
         if not dt_obj:
-            return False
+            # If article has no parsed date: include in 'preset' mode, exclude in 'range' mode
+            return (self.time_mode == 'preset')
         if self.time_mode == 'preset':
             return dt_obj >= self.cutoff_time
         # range mode
@@ -363,11 +364,11 @@ class StockScraperWeb:
             start = self.date_from
             end = self.date_to
             # If inputs are date (no tz/time), convert to VN tz with day bounds
-            if hasattr(start, 'year') and not hasattr(start, 'tzinfo'):
+            if start is not None and not hasattr(start, 'tzinfo'):
                 # date_input returns datetime.date
                 from datetime import datetime as _dt, time as _time
                 start = _dt.combine(start, _time(0,0)).replace(tzinfo=self.vietnam_tz)
-            if hasattr(end, 'year') and not hasattr(end, 'tzinfo'):
+            if end is not None and not hasattr(end, 'tzinfo'):
                 from datetime import datetime as _dt, time as _time
                 end = _dt.combine(end, _time(23,59,59)).replace(tzinfo=self.vietnam_tz)
             if start and end:
