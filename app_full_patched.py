@@ -720,7 +720,7 @@ class StockScraperWeb:
             if exchange in ['HNX', 'UPCoM']:
                 return most_common, exchange, 'name'
         
-        return None, None, None HIỆU NHẬN DIỆN THÔNG THƯỜNG
+        return None, None, None 
             # ========================================================
             has_indicator = False
             for indicator in context_indicators:
