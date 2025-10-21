@@ -14,7 +14,6 @@ import pandas as pd
 from datetime import datetime, timedelta, timezone
 import time
 import re
-from dateutil import parser as dateparser
 from urllib.parse import urljoin
 import io
 
@@ -23,7 +22,7 @@ import io
 # ============================================================
 
 st.set_page_config(
-    page_title="TOOL THU THẬP TIN ĐỒN 2.0",
+    page_title="Cào Tin Chứng Khoán V2.4",
     page_icon="📈",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -426,180 +425,16 @@ class StockScraperWeb:
         summary = self.clean_text(summary)
         return summary
     
-    
-    def extract_stock(self, text):
-        """Trích xuất mã CK với kiểm tra ngữ cảnh để tránh trùng từ phổ biến (TIN, CEO, THU, ...)."""
-        if not text:
-            return None, None, None
-
-        original = text
-        text_upper = original.upper()
-        text_lower = original.lower()
-
-        # Tập từ khóa ngữ cảnh tài chính để xác nhận mã xuất hiện "đúng chỗ"
-        context_keywords = [
-            r"mã\s*ck", r"\bcổ\s*phiếu\b", r"\bcp\b", r"\bmã\b", r"\bticker\b",
-            r"\bgiá\b", r"\btăng\b", r"\bgiảm\b", r"\bkhớp\s*lệnh\b", r"\bgiao\s*dịch\b",
-            r"\bniêm\s*yết\b", r"\bho(se)?\b", r"\bhnx\b", r"\bupcom\b", r"\bsàn\b"
-        ]
-        ctx_re = re.compile("|".join(context_keywords), flags=re.I | re.U)
-
-        # Hàm kiểm tra một mã có hợp lệ trong ngữ cảnh tiêu đề
-        def valid_match(code):
-            # r'\bCODE\b' với biên giới chữ-số để tránh dính vào từ dài
-            for m in re.finditer(r"\b" + re.escape(code) + r"\b", text_upper):
-                start, end = m.start(), m.end()
-                orig_seg = original[start:end]
-
-                # 1) Nếu đoạn gốc không phải chữ hoa (vd 'tin' thường), khả năng cao là từ thông dụng → bỏ
-                if not orig_seg.isupper():
-                    # chỉ chấp nhận nếu gần có từ khóa ngữ cảnh
-                    window = original[max(0, start-20):min(len(original), end+20)]
-                    if not ctx_re.search(window):
-                        continue
-
-                # 2) Với các mã ngắn/đa nghĩa (<=3 ký tự) yêu cầu ngữ cảnh mạnh hơn
-                if len(code) <= 3:
-                    window = original[max(0, start-20):min(len(original), end+20)]
-                    if not ctx_re.search(window):
-                        # Cho phép nếu đi kèm dấu ngoặc hoặc dấu ':' ngay trước/sau
-                        around = text_upper[max(0, start-1):min(len(text_upper), end+1)]
-                        if not (around.startswith("(") or around.endswith(")") or ":" in around):
-                            continue
-
-                return True
-            return False
-
-        # 1) Ưu tiên match theo mã (HNX/UPCoM)
-        for code in list(self.hnx_stocks) + list(self.upcom_stocks):
-            if valid_match(code):
-                exchange = self.stock_to_exchange.get(code, None)
-                if exchange:
-                    return code, exchange, 'code'
-
-        # 2) Rơi về match theo tên công ty (cẩn thận hơn: yêu cầu khớp >=2 từ khóa tên, hoặc 1 từ khóa + ngữ cảnh)
-        matched = []
-        for name, codes in self.name_to_code.items():
-            if len(name) <= 3:
-                continue
-            # chỉ xét những "name" dài (từ >=4 ký tự) để giảm nhiễu
-            if re.search(r"\b" + re.escape(name) + r"\b", text_lower):
-                matched.extend(codes)
-
-        # Nếu có nhiều mã trùng tên, giữ lại mã mà trong tiêu đề cũng thấy ngữ cảnh
-        for code in matched:
-            if valid_match(code) or ctx_re.search(original):
-                exchange = self.stock_to_exchange.get(code, None)
-                if exchange:
-                    return code, exchange, 'name'
-
-        return None, None, None
-
-    def advanced_summarize(self, content, title, max_sentences=4):
-        """Tóm tắt EXTRACTIVE - từ V1.0"""
-        content = self.clean_text(content)
-        title = self.clean_text(title)
-        
-        if not content or len(content) < 100:
-            return content
-        
-        full_text = title + ". " + content
-        sentences = re.split(r'[.!?]+', full_text)
-        sentences = [s.strip() for s in sentences if len(s.strip()) > 30]
-        
-        if len(sentences) <= max_sentences:
-            return '. '.join(sentences) + '.'
-        
-        important_keywords = {
-            'tăng': 3, 'giảm': 3, 'tăng trưởng': 3,
-            'lợi nhuận': 4, 'doanh thu': 4, 'lỗ': 3,
-            'tỷ đồng': 3, 'nghìn tỷ': 4,
-            'cổ phiếu': 3, 'niêm yết': 3,
-            'giao dịch': 2, 'thanh khoản': 3,
-            'quý': 3, 'năm': 2,
-            'phát hành': 3, 'trái phiếu': 3,
-            'đầu tư': 2, 'vốn': 3,
-        }
-        
-        scored_sentences = []
-        for i, sentence in enumerate(sentences):
-            score = 0
-            sentence_lower = sentence.lower()
-            
-            if i == 0:
-                score += 5
-            elif i == 1:
-                score += 3
-            elif i < 5:
-                score += 1
-            
-            for keyword, weight in important_keywords.items():
-                if keyword in sentence_lower:
-                    score += weight
-            
-            numbers = re.findall(r'\d+(?:[.,]\d+)*', sentence)
-            if numbers:
-                score += len(numbers)
-                if any(num for num in numbers if len(num.replace('.', '').replace(',', '')) >= 4):
-                    score += 2
-            
-            if '%' in sentence:
-                score += 3
-            
-            word_count = len(sentence.split())
-            if 12 <= word_count <= 35:
-                score += 2
-            elif word_count < 8 or word_count > 50:
-                score -= 1
-            
-            for code in list(self.hnx_stocks) + list(self.upcom_stocks):
-                if code in sentence.upper():
-                    score += 3
-                    break
-            
-            scored_sentences.append((sentence, score, i))
-        
-        scored_sentences.sort(key=lambda x: x[1], reverse=True)
-        top_sentences = scored_sentences[:max_sentences]
-        top_sentences.sort(key=lambda x: x[2])
-        
-        summary = '. '.join([s[0] for s in top_sentences])
-        if not summary.endswith('.'):
-            summary += '.'
-        
-        summary = self.clean_text(summary)
-        return summary
-    
     def extract_stock(self, text):
         """Trích xuất mã CK"""
         text_upper = text.upper()
         text_lower = text.lower()
         
-        # BLACKLIST - Mở rộng
         blacklist_patterns = [
-            # Tin tổng quan thị trường
             r'CHỨNG KHOÁN\s+\w+\s+CÓ\s+NHẬN ĐỊNH',
-            r'CHỨNG KHOÁN\s+\w+\s+DỰ BÁO',
-            r'CHỨNG KHOÁN\s+\w+\s+PHÂN TÍCH',
             r'CÔNG TY\s+CHỨNG KHOÁN',
             r'CTCK\s+\w+',
-            
-            # Index
             r'VN-INDEX',
-            r'HNX-INDEX',
-            r'UPCOM-INDEX',
-            
-            # Top cổ phiếu (tránh nhầm với mã TOP)
-            r'TOP\s+CỔ\s+PHIẾU',
-            r'TOP\s+\d+',  # Top 5, Top 10...
-            r'TOP\s+MÃ',
-            
-            # Tổng quan
-            r'THỊ TRƯỜNG CHUNG',
-            r'DIỄN BIẾN THỊ TRƯỜNG',
-            r'TỔNG QUAN THỊ TRƯỜNG',
-            r'ĐIỂM TIN',
-            r'BẢN TIN',
         ]
         
         for pattern in blacklist_patterns:
@@ -611,39 +446,16 @@ class StockScraperWeb:
             match = re.search(r'\b' + code + r'\b', text_upper)
             if match:
                 context = text_upper[max(0, match.start()-10):match.end()+10]
-                
-                # Check context xung quanh
                 if re.search(r'CHỨNG KHOÁN\s+' + code, context):
                     continue
-                if re.search(r'CTCK\s+' + code, context):
-                    continue
-                
-                # ĐẶC BIỆT: Check mã "TOP"
-                if code == 'TOP':
-                    # Chỉ nhận nếu "TOP" đứng đầu câu hoặc sau dấu câu
-                    if match.start() > 0:
-                        prev_char = text_upper[match.start()-1]
-                        # Nếu trước "TOP" là chữ hoặc số → bỏ qua
-                        if prev_char.isalnum():
-                            continue
-                    # Nếu sau "TOP" là số hoặc "cổ phiếu" → bỏ qua
-                    if match.end() < len(text_upper) - 1:
-                        next_chars = text_upper[match.end():match.end()+15]
-                        if re.match(r'\s+\d+', next_chars) or re.match(r'\s+CỔ', next_chars):
-                            continue
-                
                 return code, 'HNX', 'code'
         
         for code in self.upcom_stocks:
             match = re.search(r'\b' + code + r'\b', text_upper)
             if match:
                 context = text_upper[max(0, match.start()-10):match.end()+10]
-                
                 if re.search(r'CHỨNG KHOÁN\s+' + code, context):
                     continue
-                if re.search(r'CTCK\s+' + code, context):
-                    continue
-                
                 return code, 'UPCoM', 'code'
         
         # Tìm theo tên
@@ -664,15 +476,68 @@ class StockScraperWeb:
     def fetch_url(self, url, max_retries=2):
         for attempt in range(max_retries):
             try:
-                resp = self.session.get(url, headers=self.headers, timeout=15)
-                resp.raise_for_status()
-                return resp
-            except Exception:
+                response = self.session.get(url, headers=self.headers, timeout=15)
+                response.raise_for_status()
+                return response
+            except:
                 if attempt < max_retries - 1:
                     time.sleep(1)
-        # out of loop
+                return None
+    
+    def parse_date(self, date_text):
+        """Parse ngày tháng từ nhiều định dạng khác nhau"""
+        if not date_text:
+            return None
+        
+        try:
+            # Loại bỏ khoảng trắng thừa
+            date_text = date_text.strip()
+            
+            # Định dạng ISO: 2025-10-21T14:30:00+07:00
+            if 'T' in date_text or '+' in date_text:
+                match = re.search(r'(\d{4})-(\d{2})-(\d{2})', date_text)
+                if match:
+                    year, month, day = match.groups()
+                    return datetime(int(year), int(month), int(day), tzinfo=self.vietnam_tz)
+            
+            # Định dạng: 21/10/2025 14:30
+            match = re.search(r'(\d{1,2})[/-](\d{1,2})[/-](\d{4})', date_text)
+            if match:
+                day, month, year = match.groups()
+                return datetime(int(year), int(month), int(day), tzinfo=self.vietnam_tz)
+            
+            # Định dạng: 21-10-2025
+            match = re.search(r'(\d{1,2})[/-](\d{1,2})[/-](\d{4})', date_text)
+            if match:
+                day, month, year = match.groups()
+                return datetime(int(year), int(month), int(day), tzinfo=self.vietnam_tz)
+            
+            # Định dạng tiếng Việt: "21 Tháng 10 2025" hoặc "21/10/2025"
+            match = re.search(r'(\d{1,2})\s*[/-]\s*(\d{1,2})\s*[/-]\s*(\d{4})', date_text)
+            if match:
+                day, month, year = match.groups()
+                return datetime(int(year), int(month), int(day), tzinfo=self.vietnam_tz)
+            
+            # Từ khóa thời gian tương đối
+            date_text_lower = date_text.lower()
+            now = datetime.now(self.vietnam_tz)
+            
+            if 'hôm nay' in date_text_lower or 'today' in date_text_lower:
+                return now
+            elif 'hôm qua' in date_text_lower or 'yesterday' in date_text_lower:
+                return now - timedelta(days=1)
+            elif 'giờ trước' in date_text_lower or 'hours ago' in date_text_lower:
+                hours_match = re.search(r'(\d+)', date_text)
+                if hours_match:
+                    hours = int(hours_match.group(1))
+                    return now - timedelta(hours=hours)
+            elif 'phút trước' in date_text_lower or 'minutes ago' in date_text_lower:
+                return now
+            
+        except:
+            pass
+        
         return None
-
     
     def fetch_article_content(self, url):
         """Lấy nội dung bài viết - từ V1.0"""
@@ -684,38 +549,37 @@ class StockScraperWeb:
             response.encoding = 'utf-8'
             soup = BeautifulSoup(response.text, 'html.parser')
             
-            # Tìm ngày
+            # Tìm ngày - MỞ RỘNG CÁC SELECTOR
             date_text = None
-            for pattern in [
-                {'class': re.compile(r'date|time|publish', re.I)},
-                {'itemprop': 'datePublished'}
-            ]:
-                date_elem = soup.find(['time', 'span', 'div'], pattern)
-                if date_elem:
-                    date_text = date_elem.get('datetime') or date_elem.get_text(strip=True)
-                    break
-            
-            # Parse ngày (GMT+7)
             article_date_obj = None
-            article_date_str = None
-            # Try to parse publication date if available
-            try:
-                if 'date_text' in locals() and date_text:
-                    dt = dateparser.parse(date_text)
-                    if dt.tzinfo is None:
-                        dt = dt.replace(tzinfo=self.vietnam_tz)
-                    dt = dt.astimezone(self.vietnam_tz)
-                    article_date_obj = dt
-                    article_date_str = article_date_obj.strftime('%d/%m/%Y %H:%M')
-            except Exception:
-                pass
-            if article_date_obj is None:
-                article_date_str = 'Không rõ'
+            
+            # Thử nhiều pattern khác nhau
+            for pattern in [
+                {'class': re.compile(r'date|time|publish|post.*date', re.I)},
+                {'itemprop': 'datePublished'},
+                {'property': 'article:published_time'},
+                {'name': 'pubdate'},
+                {'class': re.compile(r'meta.*time', re.I)}
+            ]:
+                date_elem = soup.find(['time', 'span', 'div', 'meta'], pattern)
+                if date_elem:
+                    date_text = date_elem.get('datetime') or date_elem.get('content') or date_elem.get_text(strip=True)
+                    if date_text:
+                        article_date_obj = self.parse_date(date_text)
+                        if article_date_obj:
+                            break
+            
+            # Nếu không tìm thấy, dùng ngày hiện tại
+            if not article_date_obj:
+                article_date_obj = datetime.now(self.vietnam_tz)
+            
+            article_date_str = article_date_obj.strftime('%d/%m/%Y %H:%M')
+            
             # Tìm nội dung
             content = ""
             for selector in [
                 ('article', {}),
-                ('div', {'class': re.compile(r'content|article|detail', re.I)}),
+                ('div', {'class': re.compile(r'content|article|detail|body', re.I)}),
             ]:
                 content_div = soup.find(selector[0], selector[1])
                 if content_div:
@@ -735,7 +599,7 @@ class StockScraperWeb:
         except:
             return None, None, None
     
-    def scrape_source(self, url, source_name, pattern, progress_callback=None):
+    def scrape_source(self, url, source_name, pattern, max_articles=20, progress_callback=None):
         try:
             response = self.fetch_url(url)
             if not response:
@@ -749,10 +613,13 @@ class StockScraperWeb:
             links = soup.find_all('a', href=True)
             total_links = len(links)
             
+            # BƯỚC 1: CÀO TOÀN BỘ BÀI VIẾT TRƯỚC
+            all_crawled_articles = []
+            
             for idx, link_tag in enumerate(links):
                 if progress_callback:
-                    progress = (idx + 1) / total_links
-                    progress_callback(f"{source_name}: {idx+1}/{total_links}", progress)
+                    progress = (idx + 1) / total_links * 0.5  # 50% cho việc cào
+                    progress_callback(f"{source_name} - Đang cào: {idx+1}/{total_links}", progress)
                 
                 href = link_tag.get('href', '')
                 
@@ -760,82 +627,101 @@ class StockScraperWeb:
                     title = link_tag.get_text(strip=True)
                     
                     if title and len(title) > 30:
-                        self.stats['total_crawled'] += 1
                         seen.add(href)
+                        full_link = urljoin(url, href)
                         
-                        stock_code, exchange, match_method = self.extract_stock(title)
+                        # FETCH NỘI DUNG ĐẦY ĐỦ
+                        content, article_date_str, article_date_obj = self.fetch_article_content(full_link)
                         
-                        if stock_code and exchange in ['HNX', 'UPCoM']:
-                            full_link = urljoin(url, href)
+                        # ✅ LỌC THỜI GIAN NGAY TẠI ĐÂY
+                        if content and article_date_obj:
+                            # Kiểm tra xem bài viết có nằm trong khoảng thời gian không
+                            if article_date_obj >= self.cutoff_time:
+                                all_crawled_articles.append({
+                                    'title': title,
+                                    'link': full_link,
+                                    'date': article_date_str,
+                                    'date_obj': article_date_obj,
+                                    'content': content
+                                })
+                            # else: bỏ qua bài viết quá cũ
                             
-                            if match_method == 'code':
-                                self.stats['found_by_code'] += 1
-                            else:
-                                self.stats['found_by_name'] += 1
+                            time.sleep(0.3)
                             
-                            company_name = self.code_to_name.get(stock_code, '')
-                            
-                            # FETCH NỘI DUNG ĐẦY ĐỦ
-                            content, article_date_str, article_date_obj = self.fetch_article_content(full_link)
-                            
-                            # Time cutoff filter
-                            if hasattr(self, 'cutoff_time') and self.cutoff_time:
-                                if article_date_obj is None:
-                                    continue
-                                if article_date_obj < self.cutoff_time:
-                                    continue
-                            if content:
-                                # TÓM TẮT
-                                summary = self.advanced_summarize(content, title, max_sentences=4)
-                            else:
-                                content = ""
-                                summary = title  # Fallback nếu không lấy được content
-                            
-                            # SENTIMENT
-                            sentiment_result = self.sentiment_analyzer.analyze_sentiment(title, content)
-                            
-                            if exchange == 'HNX':
-                                self.stats['hnx_found'] += 1
-                            else:
-                                self.stats['upcom_found'] += 1
-                            
-                            if sentiment_result['risk_level'] == 'Nghiêm trọng':
-                                self.stats['severe_risk'] += 1
-                            elif sentiment_result['risk_level'] == 'Cảnh báo':
-                                self.stats['warning_risk'] += 1
-                            
-                            self.all_articles.append({
-                                'Tiêu đề': title,
-                                'Link': full_link,
-                                'Ngày': article_date_str,
-                                'Mã CK': stock_code,
-                                'Tên công ty': company_name,
-                                'Sàn': exchange,
-                                'Sentiment': sentiment_result['sentiment_label'],
-                                'Điểm': sentiment_result['sentiment_score'],
-                                'Risk': sentiment_result['risk_level'],
-                                'Vi phạm': sentiment_result['violations'],
-                                'Keywords': "; ".join([k['keyword'] for k in sentiment_result['keywords'][:3]]),
-                                'Nội dung tóm tắt': summary,  # ← CỘT MỚI
-                                'Tìm theo': 'Mã CK' if match_method == 'code' else 'Tên công ty'
-                            })
-                            
-                            count += 1
-                            time.sleep(0.5)
+                            if len(all_crawled_articles) >= max_articles * 3:  # Cào nhiều hơn để lọc sau
+                                break
+            
+            self.stats['total_crawled'] = len(all_crawled_articles)
+            
+            # BƯỚC 2: LỌC MÃ CK TỪ NỘI DUNG
+            for idx, article in enumerate(all_crawled_articles):
+                if progress_callback:
+                    progress = 0.5 + (idx + 1) / len(all_crawled_articles) * 0.5  # 50% còn lại cho việc lọc
+                    progress_callback(f"{source_name} - Đang lọc mã: {idx+1}/{len(all_crawled_articles)}", progress)
+                
+                # TRÍCH XUẤT MÃ CK TỪ NỘI DUNG (không phải tiêu đề)
+                full_text = article['title'] + " " + article['content']
+                stock_code, exchange, match_method = self.extract_stock(full_text)
+                
+                if stock_code and exchange in ['HNX', 'UPCoM']:
+                    if match_method == 'code':
+                        self.stats['found_by_code'] += 1
+                    else:
+                        self.stats['found_by_name'] += 1
+                    
+                    company_name = self.code_to_name.get(stock_code, '')
+                    
+                    # TÓM TẮT
+                    summary = self.advanced_summarize(article['content'], article['title'], max_sentences=4)
+                    
+                    # SENTIMENT
+                    sentiment_result = self.sentiment_analyzer.analyze_sentiment(article['title'], article['content'])
+                    
+                    if exchange == 'HNX':
+                        self.stats['hnx_found'] += 1
+                    else:
+                        self.stats['upcom_found'] += 1
+                    
+                    if sentiment_result['risk_level'] == 'Nghiêm trọng':
+                        self.stats['severe_risk'] += 1
+                    elif sentiment_result['risk_level'] == 'Cảnh báo':
+                        self.stats['warning_risk'] += 1
+                    
+                    self.all_articles.append({
+                        'Tiêu đề': article['title'],
+                        'Link': article['link'],
+                        'Ngày': article['date'],
+                        'Mã CK': stock_code,
+                        'Tên công ty': company_name,
+                        'Sàn': exchange,
+                        'Sentiment': sentiment_result['sentiment_label'],
+                        'Điểm': sentiment_result['sentiment_score'],
+                        'Risk': sentiment_result['risk_level'],
+                        'Vi phạm': sentiment_result['violations'],
+                        'Keywords': "; ".join([k['keyword'] for k in sentiment_result['keywords'][:3]]),
+                        'Nội dung tóm tắt': summary,
+                        'Tìm theo': 'Mã CK' if match_method == 'code' else 'Tên công ty'
+                    })
+                    
+                    count += 1
+                    
+                    if count >= max_articles:
+                        break
+            
             return count
         
         except Exception as e:
             st.error(f"Lỗi {source_name}: {str(e)}")
             return 0
     
-    def run(self, progress_callback=None):
+    def run(self, max_articles_per_source=20, progress_callback=None):
         sources = [
             ("https://cafef.vn/thi-truong-chung-khoan.chn", "CafeF", lambda h: '.chn' in h),
             ("https://vietstock.vn/chung-khoan.htm", "VietStock", lambda h: re.search(r'/\d{4}/\d{2}/.+\.htm', h)),
         ]
         
         for url, name, pattern in sources:
-            self.scrape_source(url, name, pattern, progress_callback)
+            self.scrape_source(url, name, pattern, max_articles_per_source, progress_callback)
             time.sleep(1)
         
         if len(self.all_articles) == 0:
@@ -852,8 +738,8 @@ class StockScraperWeb:
 # ============================================================
 
 def main():
-    st.markdown('<div class="main-header">📈 TOOL THU THẬP TIN ĐỒN 2.0 </div>', unsafe_allow_html=True)
-    st.markdown('<div style="text-align:center;color:#666;margin-bottom:2rem;">HNX & UPCoM </div>', unsafe_allow_html=True)
+    st.markdown('<div class="main-header">📈 TOOL CÀO TIN V2.4</div>', unsafe_allow_html=True)
+    st.markdown('<div style="text-align:center;color:#666;margin-bottom:2rem;">HNX & UPCoM - Upload + Summarize + Sentiment</div>', unsafe_allow_html=True)
     
     # Sidebar
     with st.sidebar:
@@ -906,6 +792,15 @@ def main():
             format_func=lambda x: f"{x} giờ" if x < 168 else "1 tuần",
             index=2
         )
+        
+        max_articles = st.slider(
+            "📊 Số bài tối đa/nguồn",
+            min_value=5,
+            max_value=50,
+            value=20,
+            step=5
+        )
+        
         st.markdown("---")
         st.info("💡 **Hướng dẫn:**\n1. Upload danh sách mã\n2. Chọn thời gian\n3. Bấm 'Bắt đầu'\n4. Download Excel")
     
@@ -926,7 +821,7 @@ def main():
                 progress_bar.progress(progress)
             
             scraper = StockScraperWeb(stock_df, time_filter_hours=time_filter)
-            df = scraper.run(progress_callback=update_progress)
+            df = scraper.run(max_articles_per_source=max_articles, progress_callback=update_progress)
             
             progress_bar.empty()
             status_text.empty()
