@@ -313,6 +313,8 @@ class StockScraperWeb:
         self.stock_df = stock_df
         self.hnx_stocks = set(stock_df[stock_df['Sàn'] == 'HNX']['Mã CK'].tolist())
         self.upcom_stocks = set(stock_df[stock_df['Sàn'] == 'UPCoM']['Mã CK'].tolist())
+        self.hose_stocks = set(stock_df[stock_df['Sàn'].str.upper() == 'HOSE']['Mã CK'].tolist())  # ✅ THÊM HOSE
+        self.all_stocks = set(stock_df['Mã CK'].tolist())  # ✅ TẤT CẢ MÃ
         
         self.code_to_name = dict(zip(stock_df['Mã CK'], stock_df['Tên công ty']))
         
@@ -499,41 +501,41 @@ class StockScraperWeb:
                 elif code in self.upcom_stocks:
                     return code, 'UPCoM', 'code'
         
-        # Pattern nhóm 2: Có từ khóa "mã"
+        # Pattern nhóm 2: Có từ khóa "mã" - QUAN TRỌNG: TÌM TẤT CẢ, KHÔNG RETURN NGAY
         patterns_with_ma = [
+            r',\s*MÃ:\s*([A-Z]{3})\)',                          # (FPTS, mã: FTS) - PATTERN ƯU TIÊN
+            r'\(.*?,\s*MÃ:\s*([A-Z]{3})\)',                     # (... , mã: ABC)
             r'MÃ\s*(?:CK|CHỨNG KHOÁN|CP)?:?\s*([A-Z]{3})\b',    # Mã CK: ABC, Mã: ABC
             r'MÃ\s+([A-Z]{3})\b',                                # Mã ABC
             r'\(MÃ:?\s*([A-Z]{3})\)',                           # (Mã: ABC), (Mã ABC)
             r'\(MÃ\s*CK:?\s*([A-Z]{3})\)',                      # (Mã CK: ABC)
         ]
         
+        # ✅ TÌM PATTERN "MÃ:" ƯU TIÊN TUYỆT ĐỐI
         for pattern in patterns_with_ma:
-            match = re.search(pattern, text_upper)
-            if match:
+            for match in re.finditer(pattern, text_upper):
                 code = match.group(1)
                 if code in self.hnx_stocks:
                     return code, 'HNX', 'code'
                 elif code in self.upcom_stocks:
                     return code, 'UPCoM', 'code'
         
-        # Pattern nhóm 3: Có từ "cổ phiếu"
+        # Pattern nhóm 3: Có từ "cổ phiếu" - TÌM TẤT CẢ
         patterns_with_cp = [
             r'CỔ\s+PHIẾU\s+([A-Z]{3})\b',                # Cổ phiếu ABC
             r'\(CỔ\s+PHIẾU:?\s*([A-Z]{3})\)',            # (Cổ phiếu: ABC)
         ]
         
         for pattern in patterns_with_cp:
-            match = re.search(pattern, text_upper)
-            if match:
+            for match in re.finditer(pattern, text_upper):
                 code = match.group(1)
                 if code in self.hnx_stocks:
                     return code, 'HNX', 'code'
                 elif code in self.upcom_stocks:
                     return code, 'UPCoM', 'code'
         
-        # Pattern nhóm 4: Đơn giản trong ngoặc
-        match = re.search(r'\(([A-Z]{3})\)', text_upper)
-        if match:
+        # Pattern nhóm 4: Đơn giản trong ngoặc - TÌM TẤT CẢ
+        for match in re.finditer(r'\(([A-Z]{3})\)', text_upper):
             code = match.group(1)
             if code in self.hnx_stocks:
                 return code, 'HNX', 'code'
@@ -779,11 +781,15 @@ class StockScraperWeb:
         for match in all_codes_in_text:
             code = match.group(1)
             
-            # Kiểm tra xem mã có trong danh sách không
-            if code not in self.hnx_stocks and code not in self.upcom_stocks:
+            # ✅ KIỂM TRA MÃ CÓ TRONG DANH SÁCH TỔNG KHÔNG (bao gồm cả HoSE)
+            if code not in self.all_stocks:
                 continue
             
-            # Xác định sàn
+            # ✅ NẾU LÀ MÃ HOSE → BỎ QUA NGAY
+            if code in self.hose_stocks:
+                continue
+            
+            # Xác định sàn (chỉ HNX hoặc UPCoM)
             if code in self.hnx_stocks:
                 exchange = 'HNX'
             elif code in self.upcom_stocks:
