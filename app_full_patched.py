@@ -425,11 +425,37 @@ class StockScraperWeb:
         summary = self.clean_text(summary)
         return summary
     
+    def is_generic_news(self, title):
+        """Kiểm tra xem có phải tin tức chung không"""
+        title_lower = title.lower()
+        
+        generic_patterns = [
+            r'lịch\s+sự\s+kiện',
+            r'tin\s+vắn',
+            r'tổng\s+hợp',
+            r'điểm\s+tin',
+            r'nhịp\s+đập',
+            r'thị\s+trường\s+ngày',
+            r'chứng\s+khoán\s+ngày',
+            r'phiên\s+giao\s+dịch',
+            r'các\s+tin\s+tức',
+            r'tin\s+nhanh',
+            r'cập\s+nhật',
+            r'điểm\s+lại',
+        ]
+        
+        for pattern in generic_patterns:
+            if re.search(pattern, title_lower):
+                return True
+        
+        return False
+    
     def extract_stock(self, text):
-        """Trích xuất mã CK"""
+        """Trích xuất mã CK - CẢI TIẾN"""
         text_upper = text.upper()
         text_lower = text.lower()
         
+        # Blacklist cũ
         blacklist_patterns = [
             r'CHỨNG KHOÁN\s+\w+\s+CÓ\s+NHẬN ĐỊNH',
             r'CÔNG TY\s+CHỨNG KHOÁN',
@@ -440,6 +466,43 @@ class StockScraperWeb:
         for pattern in blacklist_patterns:
             if re.search(pattern, text_upper):
                 return None, None, None
+        
+        # ✅ MỚI: TÌM THEO PATTERN CỦA BÁO CHÍ
+        # Pattern 1: (UPCOM: ABC), (HNX: ABC)
+        match = re.search(r'\((?:UPCOM|HNX):\s*([A-Z]{3})\)', text_upper)
+        if match:
+            code = match.group(1)
+            if code in self.hnx_stocks:
+                return code, 'HNX', 'code'
+            elif code in self.upcom_stocks:
+                return code, 'UPCoM', 'code'
+        
+        # Pattern 2: (ABC - UPCOM), (ABC - HNX)
+        match = re.search(r'\(([A-Z]{3})\s*[-–]\s*(?:UPCOM|HNX)\)', text_upper)
+        if match:
+            code = match.group(1)
+            if code in self.hnx_stocks:
+                return code, 'HNX', 'code'
+            elif code in self.upcom_stocks:
+                return code, 'UPCoM', 'code'
+        
+        # Pattern 3: (ABC, UPCOM), (ABC, HNX)
+        match = re.search(r'\(([A-Z]{3})\s*,\s*(?:UPCOM|HNX)\)', text_upper)
+        if match:
+            code = match.group(1)
+            if code in self.hnx_stocks:
+                return code, 'HNX', 'code'
+            elif code in self.upcom_stocks:
+                return code, 'UPCoM', 'code'
+        
+        # Pattern 4: Mã CK: ABC hoặc Mã: ABC
+        match = re.search(r'MÃ\s*(?:CK|CHỨNG KHOÁN)?:\s*([A-Z]{3})', text_upper)
+        if match:
+            code = match.group(1)
+            if code in self.hnx_stocks:
+                return code, 'HNX', 'code'
+            elif code in self.upcom_stocks:
+                return code, 'UPCoM', 'code'
         
         # Tìm theo mã
         for code in self.hnx_stocks:
@@ -626,7 +689,8 @@ class StockScraperWeb:
                 if pattern(href) and href not in seen:
                     title = link_tag.get_text(strip=True)
                     
-                    if title and len(title) > 30:
+                    # ✅ LỌC TIN CHUNG NGAY TẠI TIÊU ĐỀ
+                    if title and len(title) > 30 and not self.is_generic_news(title):
                         seen.add(href)
                         full_link = urljoin(url, href)
                         
@@ -718,6 +782,10 @@ class StockScraperWeb:
         sources = [
             ("https://cafef.vn/thi-truong-chung-khoan.chn", "CafeF", lambda h: '.chn' in h),
             ("https://vietstock.vn/chung-khoan.htm", "VietStock", lambda h: re.search(r'/\d{4}/\d{2}/.+\.htm', h)),
+            ("https://nguoiquansat.vn/chung-khoan", "Người Quan Sát", lambda h: '/chung-khoan/' in h and h.startswith('/')),
+            ("https://baomoi.com/chung-khoan.epi", "Báo Mới", lambda h: h.startswith('/') and any(x in h for x in ['.epi', '-c111'])),
+            ("https://www.tinnhanhchungkhoan.vn/chung-khoan/", "Tin Nhanh CK (CK)", lambda h: '/chung-khoan/' in h or '/doanh-nghiep/' in h),
+            ("https://www.tinnhanhchungkhoan.vn/doanh-nghiep/", "Tin Nhanh CK (DN)", lambda h: '/doanh-nghiep/' in h or '/chung-khoan/' in h),
         ]
         
         for url, name, pattern in sources:
