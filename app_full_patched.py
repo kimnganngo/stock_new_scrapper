@@ -426,9 +426,10 @@ class StockScraperWeb:
         return summary
     
     def is_generic_news(self, title):
-        """Kiểm tra xem có phải tin tức chung không"""
+        """Kiểm tra xem có phải tin tức chung không - MỞ RỘNG"""
         title_lower = title.lower()
         
+        # DANH SÁCH MỞ RỘNG
         generic_patterns = [
             r'lịch\s+sự\s+kiện',
             r'tin\s+vắn',
@@ -442,34 +443,67 @@ class StockScraperWeb:
             r'tin\s+nhanh',
             r'cập\s+nhật',
             r'điểm\s+lại',
+            r'diễn\s+biến',
+            r'động\s+thái',
+            r'tuần\s+qua',
+            r'trong\s+tuần',
+            r'thị\s+trường\s+tuần',
+            r'bản\s+tin',
+            r'tin\s+tức\s+nổi\s+bật',
+            r'sự\s+kiện\s+nổi\s+bật',
+            r'điểm\s+nổi\s+bật',
+            r'các\s+thông\s+tin',
+            r'review',
+            r'nhìn\s+lại',
+            r'tổng\s+quan',
+            r'tổng\s+kết',
+            r'toàn\s+cảnh',
+            r'đáng\s+chú\s+ý',
+            r'cần\s+biết',
         ]
         
         for pattern in generic_patterns:
             if re.search(pattern, title_lower):
                 return True
         
+        # Lọc pattern "ngày DD/MM/YYYY" hoặc "ngày DD-MM"
+        if re.search(r'ngày\s+\d{1,2}[/-]\d{1,2}', title_lower):
+            return True
+        
+        # Lọc nếu có nhiều hơn 3 mã CK trong tiêu đề (thường là tin tổng hợp)
+        found_codes = []
+        for code in list(self.hnx_stocks) + list(self.upcom_stocks):
+            if re.search(r'\b' + code + r'\b', title.upper()):
+                found_codes.append(code)
+        
+        if len(found_codes) >= 3:
+            return True
+        
         return False
     
     def extract_stock(self, text):
-        """Trích xuất mã CK - CẢI TIẾN"""
+        """Trích xuất mã CK - CẢI TIẾN HOÀN TOÀN"""
         text_upper = text.upper()
         text_lower = text.lower()
         
-        # Blacklist cũ
+        # Blacklist
         blacklist_patterns = [
             r'CHỨNG KHOÁN\s+\w+\s+CÓ\s+NHẬN ĐỊNH',
             r'CÔNG TY\s+CHỨNG KHOÁN',
             r'CTCK\s+\w+',
             r'VN-INDEX',
+            r'VN30',
+            r'VNINDEX',
         ]
         
         for pattern in blacklist_patterns:
             if re.search(pattern, text_upper):
                 return None, None, None
         
-        # ✅ MỚI: TÌM THEO PATTERN CỦA BÁO CHÍ
-        # Pattern 1: (UPCOM: ABC), (HNX: ABC)
-        match = re.search(r'\((?:UPCOM|HNX):\s*([A-Z]{3})\)', text_upper)
+        # ✅ PATTERN MỚI - ƯU TIÊN CAO NHẤT (MÃ CK LÀ 3 KÝ TỰ: CHỮ + SỐ)
+        
+        # Pattern 1: Tên công ty (UPCOM: ABC) hoặc (HNX: ABC)
+        match = re.search(r'\((?:UPCOM|HNX):\s*([A-Z0-9]{3})\)', text_upper)
         if match:
             code = match.group(1)
             if code in self.hnx_stocks:
@@ -477,8 +511,8 @@ class StockScraperWeb:
             elif code in self.upcom_stocks:
                 return code, 'UPCoM', 'code'
         
-        # Pattern 2: (ABC - UPCOM), (ABC - HNX)
-        match = re.search(r'\(([A-Z]{3})\s*[-–]\s*(?:UPCOM|HNX)\)', text_upper)
+        # Pattern 2: (ABC - HOSE), (ABC - HNX), (ABC - UPCOM)
+        match = re.search(r'\(([A-Z0-9]{3})\s*[-–]\s*(?:HOSE|HNX|UPCOM)\)', text_upper)
         if match:
             code = match.group(1)
             if code in self.hnx_stocks:
@@ -486,8 +520,8 @@ class StockScraperWeb:
             elif code in self.upcom_stocks:
                 return code, 'UPCoM', 'code'
         
-        # Pattern 3: (ABC, UPCOM), (ABC, HNX)
-        match = re.search(r'\(([A-Z]{3})\s*,\s*(?:UPCOM|HNX)\)', text_upper)
+        # Pattern 3: (ABC, HOSE), (ABC, HNX), (ABC, UPCOM)
+        match = re.search(r'\(([A-Z0-9]{3})\s*,\s*(?:HOSE|HNX|UPCOM)\)', text_upper)
         if match:
             code = match.group(1)
             if code in self.hnx_stocks:
@@ -495,8 +529,17 @@ class StockScraperWeb:
             elif code in self.upcom_stocks:
                 return code, 'UPCoM', 'code'
         
-        # Pattern 4: Mã CK: ABC hoặc Mã: ABC
-        match = re.search(r'MÃ\s*(?:CK|CHỨNG KHOÁN)?:\s*([A-Z]{3})', text_upper)
+        # Pattern 4: Mã CK: ABC, Mã chứng khoán: ABC, Mã: ABC
+        match = re.search(r'MÃ\s*(?:CK|CHỨNG KHOÁN|CỔ PHIẾU)?:\s*([A-Z0-9]{3})', text_upper)
+        if match:
+            code = match.group(1)
+            if code in self.hnx_stocks:
+                return code, 'HNX', 'code'
+            elif code in self.upcom_stocks:
+                return code, 'UPCoM', 'code'
+        
+        # Pattern 5: Cổ phiếu ABC
+        match = re.search(r'CỔ\s+PHIẾU\s+([A-Z0-9]{3})\b', text_upper)
         if match:
             code = match.group(1)
             if code in self.hnx_stocks:
