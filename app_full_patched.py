@@ -160,6 +160,10 @@ class KeywordRiskDetector:
             "lãnh đạo bỏ trốn": {"category": "A. Nội bộ", "severity": "severe", "score": -95, "violation": "I.2, II.A"},
             "cổ đông lớn bán chui": {"category": "A. Nội bộ", "severity": "severe", "score": -85, "violation": "I.1, II.A"},
             "chủ tịch bất ngờ thoái hết vốn": {"category": "A. Nội bộ", "severity": "severe", "score": -85, "violation": "I.1, II.A"},
+            "bán chui": {"category": "A. Nội bộ", "severity": "severe", "score": -95, "violation": "I.2, II.A"},
+            "mua chui": {"category": "A. Nội bộ", "severity": "severe", "score": -95, "violation": "I.2, II.A"},
+            "bị bắt": {"category": "A. Nội bộ", "severity": "severe", "score": -95, "violation": "I.2, II.A"},
+            "bị phạt": {"category": "A. Nội bộ", "severity": "severe", "score": -95, "violation": "I.2, II.A"},
             
             # B. Tài chính
             "bất ngờ báo lỗ": {"category": "B. Tài chính", "severity": "severe", "score": -80, "violation": "I.4, II.B"},
@@ -469,6 +473,7 @@ class StockScraperWeb:
             'CEO': ['ceo của', 'vị trí ceo', 'làm ceo'],  # Trừ "Công ty CEO"
             'CAR': ['car', 'xe hơi', 'ô tô'],
             'HAI': ['hai năm', 'hai quý', 'hai tháng', 'cả hai'],
+            'LAI': ['tương lai', 'lại'],
             'TOP': ['top', 'đứng top', 'nằm trong top'],
             'VAN': ['văn bản', 'văn phòng'],
             'BAO': ['bao gồm', 'bao nhiêu'],
@@ -506,8 +511,8 @@ class StockScraperWeb:
         patterns_with_ma = [
             r',\s*MÃ:\s*([A-Z]{3})\)',                          # (FPTS, mã: FTS) - PATTERN ƯU TIÊN
             r'\(.*?,\s*MÃ:\s*([A-Z]{3})\)',                     # (... , mã: ABC)
-            r'MÃ\s*(?:CK|CHỨNG KHOÁN|CP)?:?\s*([A-Z]{3})\b',    # Mã CK: ABC, Mã: ABC
-            r'MÃ\s+([A-Z]{3})\b',                                # Mã ABC
+            r'MÃ\s*(?:CK|CHỨNG KHOÁN|CP|CỔ PHIẾU)?:?\s*([A-Z]{3})\b',    # Mã CK: ABC, Mã: ABC
+            r'MÃ\s+([A-Z]{3})\b',                                # Mã ABC         
             r'\(MÃ:?\s*([A-Z]{3})\)',                           # (Mã: ABC), (Mã ABC)
             r'\(MÃ\s*CK:?\s*([A-Z]{3})\)',                      # (Mã CK: ABC)
         ]
@@ -675,6 +680,7 @@ class StockScraperWeb:
             'CEO': ['ceo của', 'vị trí ceo', 'làm ceo'],
             'CAR': ['car', 'xe hơi', 'ô tô'],
             'HAI': ['hai năm', 'hai quý', 'hai tháng', 'cả hai'],
+            'LAI': ['tương lai', 'lại'],
             'TOP': ['top', 'đứng top', 'nằm trong top'],
             'VAN': ['văn bản', 'văn phòng'],
             'BAO': ['bao gồm', 'bao nhiêu'],
