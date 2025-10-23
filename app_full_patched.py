@@ -22,7 +22,7 @@ import io
 # ============================================================
 
 st.set_page_config(
-    page_title="Cào Tin Chứng Khoán V2.4",
+    page_title="Tool Thu thập tin đồn",
     page_icon="📈",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -313,8 +313,6 @@ class StockScraperWeb:
         self.stock_df = stock_df
         self.hnx_stocks = set(stock_df[stock_df['Sàn'] == 'HNX']['Mã CK'].tolist())
         self.upcom_stocks = set(stock_df[stock_df['Sàn'] == 'UPCoM']['Mã CK'].tolist())
-        self.hose_stocks = set(stock_df[stock_df['Sàn'].str.upper() == 'HOSE']['Mã CK'].tolist())  # ✅ THÊM HOSE
-        self.all_stocks = set(stock_df['Mã CK'].tolist())  # ✅ TẤT CẢ MÃ
         
         self.code_to_name = dict(zip(stock_df['Mã CK'], stock_df['Tên công ty']))
         
@@ -458,29 +456,6 @@ class StockScraperWeb:
         text_lower = text.lower()
         
         # ============================================================
-        # DANH SÁCH MÃ DỄ NHẦM LẪN - YÊU CẦU TÍN HIỆU MẠNH
-        # ============================================================
-        # Các mã này thường bị nhầm với từ thông dụng trong bài viết
-        HIGH_RISK_CODES = {
-            'THU': ['doanh thu', 'thu nhập', 'thu được', 'thu về'],
-            'TIN': ['tin vắn', 'tin tức', 'nhận tin', 'tin nhanh', 'tin mới'],
-            'USD': ['usd', 'đô la', 'dollar'],
-            'CEO': ['ceo của', 'vị trí ceo', 'làm ceo'],  # Trừ "Công ty CEO"
-            'CAR': ['car', 'xe hơi', 'ô tô'],
-            'HAI': ['hai năm', 'hai quý', 'hai tháng', 'cả hai'],
-            'TOP': ['top', 'đứng top', 'nằm trong top'],
-            'VAN': ['văn bản', 'văn phòng'],
-            'BAO': ['bao gồm', 'bao nhiêu'],
-            'GIA': ['giá', 'gia đình', 'gia tăng'],
-            'NAM': ['nam', 'năm', 'miền nam'],
-            'MAI': ['mai', 'ngày mai'],
-            'HOI': ['hội', 'hội đồng', 'hội nghị'],
-            'CAN': ['cần', 'cần thiết'],
-            'DAT': ['đạt', 'đạt được'],
-            'SAO': ['sao', 'ngôi sao', 'tại sao'],
-        }
-        
-        # ============================================================
         # BƯỚC 1: TÌM THEO CÁC PATTERN RÕ RÀNG (ƯU TIÊN CAO NHẤT)
         # ============================================================
         
@@ -500,208 +475,6 @@ class StockScraperWeb:
                     return code, 'HNX', 'code'
                 elif code in self.upcom_stocks:
                     return code, 'UPCoM', 'code'
-        
-        # Pattern nhóm 2: Có từ khóa "mã" - QUAN TRỌNG: TÌM TẤT CẢ, KHÔNG RETURN NGAY
-        patterns_with_ma = [
-            r',\s*MÃ:\s*([A-Z]{3})\)',                          # (FPTS, mã: FTS) - PATTERN ƯU TIÊN
-            r'\(.*?,\s*MÃ:\s*([A-Z]{3})\)',                     # (... , mã: ABC)
-            r'MÃ\s*(?:CK|CHỨNG KHOÁN|CP)?:?\s*([A-Z]{3})\b',    # Mã CK: ABC, Mã: ABC
-            r'MÃ\s+([A-Z]{3})\b',                                # Mã ABC
-            r'\(MÃ:?\s*([A-Z]{3})\)',                           # (Mã: ABC), (Mã ABC)
-            r'\(MÃ\s*CK:?\s*([A-Z]{3})\)',                      # (Mã CK: ABC)
-        ]
-        
-        # ✅ TÌM PATTERN "MÃ:" ƯU TIÊN TUYỆT ĐỐI
-        for pattern in patterns_with_ma:
-            for match in re.finditer(pattern, text_upper):
-                code = match.group(1)
-                if code in self.hnx_stocks:
-                    return code, 'HNX', 'code'
-                elif code in self.upcom_stocks:
-                    return code, 'UPCoM', 'code'
-        
-        # Pattern nhóm 3: Có từ "cổ phiếu" - TÌM TẤT CẢ
-        patterns_with_cp = [
-            r'CỔ\s+PHIẾU\s+([A-Z]{3})\b',                # Cổ phiếu ABC
-            r'\(CỔ\s+PHIẾU:?\s*([A-Z]{3})\)',            # (Cổ phiếu: ABC)
-        ]
-        
-        for pattern in patterns_with_cp:
-            for match in re.finditer(pattern, text_upper):
-                code = match.group(1)
-                if code in self.hnx_stocks:
-                    return code, 'HNX', 'code'
-                elif code in self.upcom_stocks:
-                    return code, 'UPCoM', 'code'
-        
-        # Pattern nhóm 4: Đơn giản trong ngoặc - TÌM TẤT CẢ
-        for match in re.finditer(r'\(([A-Z]{3})\)', text_upper):
-            code = match.group(1)
-            if code in self.hnx_stocks:
-                return code, 'HNX', 'code'
-            elif code in self.upcom_stocks:
-                return code, 'UPCoM', 'code'
-        
-        # ============================================================
-        # BƯỚC 2: TÌM THEO MÃ CÓ TÍN HIỆU NHẬN DIỆN XUNG QUANH
-        # ============================================================
-        
-        # Định nghĩa các tín hiệu nhận diện (context indicators)
-        context_indicators = [
-            r'CÔNG\s+TY\s+',                    # Công ty ABC
-            r'MÃ\s+',                           # Mã ABC (không có dấu :)
-            r'CỔ\s+PHIẾU\s+',                   # Cổ phiếu ABC
-            r'CP\s+',                           # CP ABC
-            r'CK\s+',                           # CK ABC
-            r'CTCP\s+',                         # CTCP ABC
-            r'TNHH\s+',                         # TNHH ABC (ít gặp nhưng có thể có)
-            r'TẬP\s+ĐOÀN\s+',                   # Tập đoàn ABC
-            r'NGÂN\s+HÀNG\s+',                  # Ngân hàng ABC
-            r'NH\s+',                           # NH ABC
-        ]
-        
-        # Tín hiệu MẠNH cho mã dễ nhầm (phải có một trong những pattern này)
-        strong_indicators = [
-            r'CÔNG\s+TY\s+',                    # Công ty ABC
-            r'CTCP\s+',                         # CTCP ABC
-            r'TẬP\s+ĐOÀN\s+',                   # Tập đoàn ABC
-            r'NGÂN\s+HÀNG\s+',                  # Ngân hàng ABC
-            r'MÃ\s+(?:CK|CP|CHỨNG KHOÁN)?:?\s*',  # Mã CK: ABC, Mã ABC
-            r'CỔ\s+PHIẾU\s+',                   # Cổ phiếu ABC
-        ]
-        
-        # Tìm tất cả các cụm 3 ký tự hoa tách biệt
-        all_codes_in_text = re.finditer(r'\b([A-Z]{3})\b', text_upper)
-        
-        for match in all_codes_in_text:
-            code = match.group(1)
-            
-            # Kiểm tra xem mã có trong danh sách không
-            if code not in self.hnx_stocks and code not in self.upcom_stocks:
-                continue
-            
-            # Lấy context xung quanh (50 ký tự trước và sau)
-            start = max(0, match.start() - 50)
-            end = min(len(text_upper), match.end() + 50)
-            context = text_upper[start:end]
-            
-            # Lấy context để kiểm tra false positive patterns
-            wider_context_start = max(0, match.start() - 100)
-            wider_context_end = min(len(text_upper), match.end() + 100)
-            wider_context = text_upper[wider_context_start:wider_context_end]
-            
-            # ========================================================
-            # KIỂM TRA MÃ DỄ NHẦM LẪN - YÊU CẦU TÍN HIỆU MẠNH
-            # ========================================================
-            if code in HIGH_RISK_CODES:
-                # Kiểm tra xem có phải là từ thông dụng không
-                is_common_word = False
-                for false_pattern in HIGH_RISK_CODES[code]:
-                    # Kiểm tra trong wider context (không phân biệt hoa thường)
-                    wider_context_lower = text_lower[wider_context_start:wider_context_end]
-                    if false_pattern in wider_context_lower:
-                        # Tìm vị trí của false pattern
-                        fp_pos = wider_context_lower.find(false_pattern)
-                        # Kiểm tra xem mã CK có nằm trong false pattern không
-                        code_pos_in_wider = match.start() - wider_context_start
-                        # Nếu mã nằm trong khoảng của false pattern, đây là từ thông dụng
-                        if fp_pos <= code_pos_in_wider <= fp_pos + len(false_pattern):
-                            is_common_word = True
-                            break
-                
-                if is_common_word:
-                    # Nếu là từ thông dụng, BẮT BUỘC phải có tín hiệu MẠNH
-                    has_strong_indicator = False
-                    before_context = text_upper[max(0, match.start() - 30):match.start()]
-                    
-                    for strong_ind in strong_indicators:
-                        if re.search(strong_ind, before_context):
-                            has_strong_indicator = True
-                            break
-                    
-                    if not has_strong_indicator:
-                        # Không có tín hiệu mạnh -> BỎ QUA mã này
-                        continue
-            
-            # ========================================================
-            # KIỂM TRA BLACKLIST PATTERNS
-            # ========================================================
-            blacklist_in_context = [
-                r'CHỨNG\s+KHOÁN\s+' + code,     # Chứng khoán ABC (tên công ty CK)
-                r'CTCK\s+' + code,               # CTCK ABC
-                r'VN-?INDEX',                    # VN-INDEX
-                r'NHẬN\s+ĐỊNH',                  # ... có nhận định
-            ]
-            
-            is_blacklisted = False
-            for bl_pattern in blacklist_in_context:
-                if re.search(bl_pattern, context):
-                    is_blacklisted = True
-                    break
-            
-            if is_blacklisted:
-                continue
-            
-            # ========================================================
-            # KIỂM TRA TÍN HIỆU NHẬN DIỆN THÔNG THƯỜNG
-            # ========================================================
-            has_indicator = False
-            for indicator in context_indicators:
-                # Tìm indicator TRƯỚC mã (trong vòng 30 ký tự)
-                before_context = text_upper[max(0, match.start() - 30):match.start()]
-                if re.search(indicator, before_context):
-                    has_indicator = True
-                    break
-            
-    def extract_stock(self, text):
-        """Trích xuất mã CK - NÂNG CAO: XỬ LÝ NHIỀU MÃ, ƯU TIÊN MÃ CÓ TÍN HIỆU"""
-        text_upper = text.upper()
-        text_lower = text.lower()
-        
-        # ============================================================
-        # DANH SÁCH MÃ DỄ NHẦM LẪN - YÊU CẦU TÍN HIỆU MẠNH
-        # ============================================================
-        # Các mã này thường bị nhầm với từ thông dụng trong bài viết
-        HIGH_RISK_CODES = {
-            'THU': ['doanh thu', 'thu nhập', 'thu được', 'thu về'],
-            'TIN': ['tin vắn', 'tin tức', 'nhận tin', 'tin nhanh', 'tin mới'],
-            'USD': ['usd', 'đô la', 'dollar'],
-            'CEO': ['ceo của', 'vị trí ceo', 'làm ceo'],  # Trừ "Công ty CEO"
-            'CAR': ['car', 'xe hơi', 'ô tô'],
-            'HAI': ['hai năm', 'hai quý', 'hai tháng', 'cả hai'],
-            'TOP': ['top', 'đứng top', 'nằm trong top'],
-            'VAN': ['văn bản', 'văn phòng'],
-            'BAO': ['bao gồm', 'bao nhiêu'],
-            'GIA': ['giá', 'gia đình', 'gia tăng'],
-            'NAM': ['nam', 'năm', 'miền nam'],
-            'MAI': ['mai', 'ngày mai'],
-            'HOI': ['hội', 'hội đồng', 'hội nghị'],
-            'CAN': ['cần', 'cần thiết'],
-            'DAT': ['đạt', 'đạt được'],
-            'SAO': ['sao', 'ngôi sao', 'tại sao'],
-        }
-        
-        # ============================================================
-        # BƯỚC 1: TÌM THEO CÁC PATTERN RÕ RÀNG (ƯU TIÊN CAO NHẤT)
-        # ============================================================
-        
-        # Pattern nhóm 1: Trong ngoặc với sàn
-        patterns_with_exchange = [
-            r'\((?:UPCOM|HNX):\s*([A-Z]{3})\)',           # (UPCOM: ABC), (HNX: ABC)
-            r'\(([A-Z]{3})\s*[-–]\s*(?:UPCOM|HNX)\)',     # (ABC - UPCOM), (ABC - HNX)
-            r'\(([A-Z]{3})\s*,\s*(?:UPCOM|HNX)\)',        # (ABC, UPCOM), (ABC, HNX)
-            r'\((?:UPCOM|HNX)\s*[-–]\s*([A-Z]{3})\)',     # (UPCOM - ABC), (HNX - ABC)
-        ]
-        
-        for pattern in patterns_with_exchange:
-            match = re.search(pattern, text_upper)
-            if match:
-                code = match.group(1)
-                if code in self.hnx_stocks:
-                    return code, 'HNX', 'code'
-                elif code in self.upcom_stocks:
-                    return code, 'UPCoM', 'code'
-                # ✅ NẾU LÀ MÃ HOSE → BỎ QUA, TIẾP TỤC TÌM
         
         # Pattern nhóm 2: Có từ khóa "mã"
         patterns_with_ma = [
@@ -745,7 +518,7 @@ class StockScraperWeb:
                 return code, 'UPCoM', 'code'
         
         # ============================================================
-        # BƯỚC 2: TÌM TẤT CẢ CÁC MÃ CÓ TÍN HIỆU - ƯU TIÊN MÃ CÓ TÍN HIỆU MẠNH NHẤT
+        # BƯỚC 2: TÌM THEO MÃ CÓ TÍN HIỆU NHẬN DIỆN XUNG QUANH
         # ============================================================
         
         # Định nghĩa các tín hiệu nhận diện (context indicators)
@@ -762,39 +535,14 @@ class StockScraperWeb:
             r'NH\s+',                           # NH ABC
         ]
         
-        # Tín hiệu MẠNH cho mã dễ nhầm (phải có một trong những pattern này)
-        strong_indicators = [
-            r'CÔNG\s+TY\s+',                    # Công ty ABC
-            r'CTCP\s+',                         # CTCP ABC
-            r'TẬP\s+ĐOÀN\s+',                   # Tập đoàn ABC
-            r'NGÂN\s+HÀNG\s+',                  # Ngân hàng ABC
-            r'MÃ\s+(?:CK|CP|CHỨNG KHOÁN)?:?\s*',  # Mã CK: ABC, Mã ABC
-            r'CỔ\s+PHIẾU\s+',                   # Cổ phiếu ABC
-        ]
-        
-        # ✅ DANH SÁCH LƯU TẤT CẢ CÁC MÃ TÌM ĐƯỢC VÀ ĐIỂM SỐ
-        found_codes = []  # [(code, exchange, score, position), ...]
-        
         # Tìm tất cả các cụm 3 ký tự hoa tách biệt
         all_codes_in_text = re.finditer(r'\b([A-Z]{3})\b', text_upper)
         
         for match in all_codes_in_text:
             code = match.group(1)
             
-            # ✅ KIỂM TRA MÃ CÓ TRONG DANH SÁCH TỔNG KHÔNG (bao gồm cả HoSE)
-            if code not in self.all_stocks:
-                continue
-            
-            # ✅ NẾU LÀ MÃ HOSE → BỎ QUA NGAY
-            if code in self.hose_stocks:
-                continue
-            
-            # Xác định sàn (chỉ HNX hoặc UPCoM)
-            if code in self.hnx_stocks:
-                exchange = 'HNX'
-            elif code in self.upcom_stocks:
-                exchange = 'UPCoM'
-            else:
+            # Kiểm tra xem mã có trong danh sách không
+            if code not in self.hnx_stocks and code not in self.upcom_stocks:
                 continue
             
             # Lấy context xung quanh (50 ký tự trước và sau)
@@ -802,14 +550,7 @@ class StockScraperWeb:
             end = min(len(text_upper), match.end() + 50)
             context = text_upper[start:end]
             
-            # Lấy context để kiểm tra false positive patterns
-            wider_context_start = max(0, match.start() - 100)
-            wider_context_end = min(len(text_upper), match.end() + 100)
-            wider_context = text_upper[wider_context_start:wider_context_end]
-            
-            # ========================================================
-            # KIỂM TRA BLACKLIST PATTERNS
-            # ========================================================
+            # Kiểm tra blacklist patterns trong context
             blacklist_in_context = [
                 r'CHỨNG\s+KHOÁN\s+' + code,     # Chứng khoán ABC (tên công ty CK)
                 r'CTCK\s+' + code,               # CTCK ABC
@@ -826,82 +567,39 @@ class StockScraperWeb:
             if is_blacklisted:
                 continue
             
-            # ========================================================
-            # TÍNH ĐIỂM CHO MÃ NÀY
-            # ========================================================
-            score = 0
-            before_context = text_upper[max(0, match.start() - 30):match.start()]
+            # Kiểm tra xem có tín hiệu nhận diện không
+            has_indicator = False
+            for indicator in context_indicators:
+                # Tìm indicator TRƯỚC mã (trong vòng 30 ký tự)
+                before_context = text_upper[max(0, match.start() - 30):match.start()]
+                if re.search(indicator, before_context):
+                    has_indicator = True
+                    break
             
-            # ========================================================
-            # KIỂM TRA MÃ DỄ NHẦM LẪN - YÊU CẦU TÍN HIỆU MẠNH
-            # ========================================================
-            if code in HIGH_RISK_CODES:
-                # Kiểm tra xem có phải là từ thông dụng không
-                is_common_word = False
-                for false_pattern in HIGH_RISK_CODES[code]:
-                    wider_context_lower = text_lower[wider_context_start:wider_context_end]
-                    if false_pattern in wider_context_lower:
-                        fp_pos = wider_context_lower.find(false_pattern)
-                        code_pos_in_wider = match.start() - wider_context_start
-                        if fp_pos <= code_pos_in_wider <= fp_pos + len(false_pattern):
-                            is_common_word = True
-                            break
-                
-                if is_common_word:
-                    # Nếu là từ thông dụng, BẮT BUỘC phải có tín hiệu MẠNH
-                    has_strong_indicator = False
-                    for strong_ind in strong_indicators:
-                        if re.search(strong_ind, before_context):
-                            has_strong_indicator = True
-                            score += 100  # Điểm cao cho tín hiệu mạnh
-                            break
-                    
-                    if not has_strong_indicator:
-                        # Không có tín hiệu mạnh -> BỎ QUA mã này
-                        continue
-                else:
-                    # Không phải từ thông dụng, kiểm tra tín hiệu bình thường
-                    for indicator in context_indicators:
-                        if re.search(indicator, before_context):
-                            score += 50
-                            break
-            else:
-                # Mã không dễ nhầm, kiểm tra tín hiệu bình thường
-                # Tín hiệu mạnh
-                for strong_ind in strong_indicators:
-                    if re.search(strong_ind, before_context):
-                        score += 100
-                        break
-                
-                # Tín hiệu thông thường
-                if score == 0:
-                    for indicator in context_indicators:
-                        if re.search(indicator, before_context):
-                            score += 50
-                            break
-            
-            # ========================================================
-            # THÊM ĐIỂM ƯU TIÊN CHO VỊ TRÍ
-            # ========================================================
-            # Mã xuất hiện sớm hơn (gần đầu bài) được ưu tiên
-            position_score = (len(text_upper) - match.start()) / len(text_upper) * 10
-            score += position_score
-            
-            # Nếu có điểm (có tín hiệu), thêm vào danh sách
-            if score > 0:
-                found_codes.append((code, exchange, score, match.start()))
+            # Nếu có tín hiệu nhận diện, return mã này
+            if has_indicator:
+                if code in self.hnx_stocks:
+                    return code, 'HNX', 'code'
+                elif code in self.upcom_stocks:
+                    return code, 'UPCoM', 'code'
         
         # ============================================================
-        # CHỌN MÃ CÓ ĐIỂM CAO NHẤT
+        # BƯỚC 3: TÌM THEO TÊN CÔNG TY (ƯU TIÊN THẤP NHẤT)
         # ============================================================
-        if found_codes:
-            # Sắp xếp theo điểm giảm dần
-            found_codes.sort(key=lambda x: x[2], reverse=True)
-            
-            # Lấy mã có điểm cao nhất
-            best_code, best_exchange, best_score, _ = found_codes[0]
-            return best_code, best_exchange, 'code'
-
+        
+        words = text_lower.split()
+        matched_codes = []
+        for word in words:
+            if len(word) > 3 and word in self.name_to_code:
+                matched_codes.extend(self.name_to_code[word])
+        
+        if matched_codes:
+            from collections import Counter
+            most_common = Counter(matched_codes).most_common(1)[0][0]
+            exchange = self.stock_to_exchange.get(most_common)
+            return most_common, exchange, 'name'
+        
+        return None, None, None
     
     def fetch_url(self, url, max_retries=2):
         for attempt in range(max_retries):
