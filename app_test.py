@@ -291,7 +291,7 @@ class SimpleSentimentAnalyzer:
         }
 
 # ============================================================
-# STOCK SCRAPER - FIXED VERSION
+# STOCK SCRAPER
 # ============================================================
 
 class StockScraperWeb:
@@ -311,12 +311,9 @@ class StockScraperWeb:
         
         # Load stock list
         self.stock_df = stock_df
-        self.hose_stocks = set(stock_df[stock_df['Sàn'] == 'HOSE']['Mã CK'].tolist())
         self.hnx_stocks = set(stock_df[stock_df['Sàn'] == 'HNX']['Mã CK'].tolist())
         self.upcom_stocks = set(stock_df[stock_df['Sàn'] == 'UPCoM']['Mã CK'].tolist())
-        
-        # Tạo set tổng hợp TẤT CẢ mã CK
-        self.all_stock_codes = self.hose_stocks | self.hnx_stocks | self.upcom_stocks
+        self.hose_stocks = set(stock_df[stock_df['Sàn'] == 'HOSE']['Mã CK'].tolist()) if 'HOSE' in stock_df['Sàn'].values else set()
         
         self.code_to_name = dict(zip(stock_df['Mã CK'], stock_df['Tên công ty']))
         
@@ -331,8 +328,6 @@ class StockScraperWeb:
                         self.name_to_code[word].append(code)
         
         self.stock_to_exchange = {}
-        for code in self.hose_stocks:
-            self.stock_to_exchange[code] = 'HOSE'
         for code in self.hnx_stocks:
             self.stock_to_exchange[code] = 'HNX'
         for code in self.upcom_stocks:
@@ -342,7 +337,6 @@ class StockScraperWeb:
             'total_crawled': 0,
             'hnx_found': 0,
             'upcom_found': 0,
-            'hose_only_filtered': 0,  # Thêm stat mới
             'severe_risk': 0,
             'warning_risk': 0,
             'found_by_code': 0,
@@ -414,9 +408,8 @@ class StockScraperWeb:
             elif word_count < 8 or word_count > 50:
                 score -= 1
             
-            # Tìm mã CK trong câu
-            for code in self.all_stock_codes:
-                if re.search(r'\b' + code + r'\b', sentence):  # Chỉ match whole word
+            for code in list(self.hnx_stocks) + list(self.upcom_stocks):
+                if code in sentence.upper():
                     score += 3
                     break
             
@@ -434,9 +427,10 @@ class StockScraperWeb:
         return summary
     
     def is_generic_news(self, title):
-        """Kiểm tra xem có phải tin tức chung không"""
+        """Kiểm tra xem có phải tin tức chung không - MỞ RỘNG"""
         title_lower = title.lower()
         
+        # DANH SÁCH MỞ RỘNG
         generic_patterns = [
             r'lịch\s+sự\s+kiện',
             r'tin\s+vắn',
@@ -450,169 +444,278 @@ class StockScraperWeb:
             r'tin\s+nhanh',
             r'cập\s+nhật',
             r'điểm\s+lại',
+            r'diễn\s+biến',
+            r'động\s+thái',
+            r'tuần\s+qua',
+            r'trong\s+tuần',
+            r'thị\s+trường\s+tuần',
+            r'bản\s+tin',
+            r'tin\s+tức\s+nổi\s+bật',
+            r'sự\s+kiện\s+nổi\s+bật',
+            r'điểm\s+nổi\s+bật',
+            r'các\s+thông\s+tin',
+            r'review',
+            r'nhìn\s+lại',
+            r'tổng\s+quan',
+            r'tổng\s+kết',
+            r'toàn\s+cảnh',
+            r'đáng\s+chú\s+ý',
+            r'cần\s+biết',
         ]
         
         for pattern in generic_patterns:
             if re.search(pattern, title_lower):
                 return True
         
+        # Lọc pattern "ngày DD/MM/YYYY" hoặc "ngày DD-MM"
+        if re.search(r'ngày\s+\d{1,2}[/-]\d{1,2}', title_lower):
+            return True
+        
+        # Lọc nếu có nhiều hơn 3 mã CK trong tiêu đề (thường là tin tổng hợp)
+        found_codes = []
+        for code in list(self.hnx_stocks) + list(self.upcom_stocks):
+            if re.search(r'\b' + code + r'\b', title.upper()):
+                found_codes.append(code)
+        
+        if len(found_codes) >= 3:
+            return True
+        
         return False
     
-    # ============================================================
-    # HÀM MỚI: QUÉT TẤT CẢ MÃ CK TRONG BÀI (KHÔNG UPPER CASE)
-    # ============================================================
-    def extract_all_stocks_from_article(self, text):
-        """
-        Quét toàn bộ bài viết 1 lượt để tìm TẤT CẢ mã CK xuất hiện
-        CHỈ NHẬN DIỆN MÃ VIẾT HOA TRONG BÀI GỐC (không upper case text)
+    def extract_stock(self, text):
+        """Trích xuất mã CK - CẢI TIẾN HOÀN TOÀN"""
+        text_upper = text.upper()
+        text_lower = text.lower()
         
-        Returns:
-            dict: {
-                'all_codes': set(),  # Tất cả mã tìm thấy
-                'hose_codes': set(), 
-                'hnx_codes': set(),
-                'upcom_codes': set(),
-                'has_hnx_upcom': bool,  # Có HNX/UPCoM không?
-                'has_only_hose': bool   # Chỉ có HOSE không?
-            }
-        """
-        result = {
-            'all_codes': set(),
-            'hose_codes': set(),
-            'hnx_codes': set(),
-            'upcom_codes': set(),
-            'has_hnx_upcom': False,
-            'has_only_hose': False
+        # Blacklist
+        blacklist_patterns = [
+            r'CHỨNG KHOÁN\s+\w+\s+CÓ\s+NHẬN ĐỊNH',
+            r'CÔNG TY\s+CHỨNG KHOÁN',
+            r'CTCK\s+\w+',
+            r'VN-INDEX',
+            r'VN30',
+            r'VNINDEX',
+        ]
+        
+        for pattern in blacklist_patterns:
+            if re.search(pattern, text_upper):
+                return None, None, None
+        
+        # ⚠️ DANH SÁCH MÃ DỄ BỊ NHẦM (False Positive)
+        # Những mã này phải có tín hiệu xung quanh rõ ràng mới được ghi nhận
+        AMBIGUOUS_CODES = {'THU', 'TIN', 'USD', 'CEO', 'CAR', 'HAI', 'VAN', 'NGO', 'BAO', 'QUA', 'NAM', 'TAO'}
+        
+        # ⚠️ CÁC TỪ THƯỜNG BỊ NHẦM
+        FALSE_POSITIVE_PATTERNS = {
+            'THU': [r'DOANH\s+THU', r'THU\s+NHẬP', r'THU\s+ĐƯỢC', r'THU\s+VỀ', r'THU\s+HỒI'],
+            'TIN': [r'TIN\s+VẮN', r'TIN\s+TỨC', r'NHẬN\s+TIN', r'THEO\s+TIN', r'TIN\s+NHANH', r'TIN\s+RẰNG'],
+            'USD': [r'\d+\s*USD', r'USD\s*/'],
+            'CEO': [r'VỊ\s+TRÍ\s+CEO', r'LÀM\s+CEO', r'CHỨC\s+CEO'],
+            'CAR': [r'XE\s+CAR', r'Ô\s+TÔ\s+CAR'],
+            'VAN': [r'TIN\s+VAN', r'VẬN\s+CHUYỂN'],
+            'NAM': [r'NĂM\s+\d', r'\d+\s+NĂM', r'NĂM\s+NAY', r'NĂM\s+NGOÁI', r'NĂM\s+SAU', r'NĂM\s+TRƯỚC'],
         }
         
-        # KHÔNG upper case text - giữ nguyên để detect chỉ mã viết hoa
-        RISKY_CODES = {'THU', 'TIN', 'TOP', 'HAI', 'LAI', 'CEO', 'CCP'}
-        
-        # ============================================================
-        # PATTERN 1: MÃ TRONG NGOẶC VỚI SÀN
-        # ============================================================
-        patterns_with_exchange = [
-            r'\((?:UPCOM|HNX|HOSE):\s*([A-Z]{3})\)',
-            r'\(([A-Z]{3})\s*[-–]\s*(?:UPCOM|HNX|HOSE)\)',
-            r'\(([A-Z]{3})\s*,\s*(?:UPCOM|HNX|HOSE)\)',
-        ]
-        
-        for pattern in patterns_with_exchange:
-            for match in re.finditer(pattern, text):
-                code = match.group(1)
-                if code in self.all_stock_codes:
-                    result['all_codes'].add(code)
-        
-        # ============================================================
-        # PATTERN 2: MÃ SAU CỤM TỪ NHẬN DIỆN
-        # ============================================================
-        signal_patterns = [
-            r'(?:cổ\s+phiếu|mã|cp)\s+([A-Z]{3})\b',
-            r'\bcông\s+ty\s+([A-Z]{3})\b',
-            r'\b([A-Z]{3})\s+(?:tăng|giảm|tăng|giảm)\b',
-        ]
-        
-        for pattern in signal_patterns:
-            for match in re.finditer(pattern, text, re.IGNORECASE):
-                code = match.group(1).upper()
-                if code in self.all_stock_codes:
-                    result['all_codes'].add(code)
-        
-        # ============================================================
-        # PATTERN 3: MÃ VIẾT HOA ĐỨNG ĐỘC LẬP (CHỈ NHỮNG MÃ AN TOÀN)
-        # ============================================================
-        # Tìm tất cả các từ viết hoa 3 chữ cái đứng riêng
-        standalone_pattern = r'\b([A-Z]{3})\b'
-        
-        for match in re.finditer(standalone_pattern, text):
-            code = match.group(1)
+        # ✅ HÀM KIỂM TRA MÃ AMBIGUOUS
+        def is_valid_ambiguous_code(code, text_context):
+            """Kiểm tra xem mã dễ nhầm có tín hiệu rõ ràng không"""
+            if code not in AMBIGUOUS_CODES:
+                return True  # Mã bình thường, không cần kiểm tra
             
-            # Chỉ nhận nếu:
-            # 1. Là mã CK hợp lệ
-            # 2. KHÔNG thuộc nhóm nguy hiểm (trừ khi có tín hiệu rõ ràng ở trên)
-            if code in self.all_stock_codes:
-                if code not in RISKY_CODES:
-                    result['all_codes'].add(code)
-                elif code in result['all_codes']:  # Đã tìm thấy ở pattern trên
-                    pass  # Giữ lại
+            # Kiểm tra false positive patterns
+            if code in FALSE_POSITIVE_PATTERNS:
+                for fp_pattern in FALSE_POSITIVE_PATTERNS[code]:
+                    if re.search(fp_pattern, text_context):
+                        return False  # Đây là false positive
+            
+            # Các pattern HỢP LỆ cho mã ambiguous
+            valid_patterns = [
+                r'CÔNG\s+TY\s+' + code,
+                r'MÃ\s+(?:CK|CHỨNG KHOÁN|CỔ PHIẾU)?\s*:\s*' + code,
+                r'CỔ\s+PHIẾU\s+' + code,
+                r'\(' + code + r'\s*[-–,]\s*(?:HNX|UPCOM|HOSE)\)',
+                r'\((?:HNX|UPCOM|HOSE)\s*[-–,:]\s*' + code + r'\)',
+                r'\(' + code + r'\)',  # Trong ngoặc đơn thuần
+                r'\b' + code + r'\s*[-–]\s*(?:HNX|UPCOM|HOSE)',
+            ]
+            
+            for pattern in valid_patterns:
+                if re.search(pattern, text_context):
+                    return True
+            
+            return False  # Không có tín hiệu rõ ràng
         
-        # ============================================================
-        # PHÂN LOẠI THEO SÀN
-        # ============================================================
-        for code in result['all_codes']:
-            exchange = self.stock_to_exchange.get(code)
-            if exchange == 'HOSE':
-                result['hose_codes'].add(code)
-            elif exchange == 'HNX':
-                result['hnx_codes'].add(code)
-            elif exchange == 'UPCoM':
-                result['upcom_codes'].add(code)
+        # ✅ PATTERN MỚI - ƯU TIÊN CAO NHẤT (MÃ CK LÀ 3 KÝ TỰ: CHỮ + SỐ)
         
-        # ============================================================
-        # XÁC ĐỊNH ĐIỀU KIỆN LỌC
-        # ============================================================
-        result['has_hnx_upcom'] = len(result['hnx_codes']) > 0 or len(result['upcom_codes']) > 0
-        result['has_only_hose'] = len(result['hose_codes']) > 0 and not result['has_hnx_upcom']
+        # Pattern 1: Tên công ty (UPCOM: ABC) hoặc (HNX: ABC)
+        match = re.search(r'\((?:UPCOM|HNX):\s*([A-Z0-9]{3})\)', text_upper)
+        if match:
+            code = match.group(1)
+            context = text_upper[max(0, match.start()-30):match.end()+30]
+            if is_valid_ambiguous_code(code, context):
+                if code in self.hnx_stocks:
+                    return code, 'HNX', 'code'
+                elif code in self.upcom_stocks:
+                    return code, 'UPCoM', 'code'
         
-        return result
-    
-    # Giữ lại hàm extract_stock cũ cho việc lấy mã chính của bài
-    def extract_stock(self, text):
-        """
-        Trích xuất MÃ CHÍNH của bài viết (dùng cho display)
-        Ưu tiên: HNX/UPCoM > HOSE
-        """
-        stock_analysis = self.extract_all_stocks_from_article(text)
+        # Pattern 2: (ABC - HOSE), (ABC - HNX), (ABC - UPCOM)
+        match = re.search(r'\(([A-Z0-9]{3})\s*[-–]\s*(?:HOSE|HNX|UPCOM)\)', text_upper)
+        if match:
+            code = match.group(1)
+            context = text_upper[max(0, match.start()-30):match.end()+30]
+            if is_valid_ambiguous_code(code, context):
+                if code in self.hnx_stocks:
+                    return code, 'HNX', 'code'
+                elif code in self.upcom_stocks:
+                    return code, 'UPCoM', 'code'
         
-        # Ưu tiên HNX/UPCoM
-        if stock_analysis['hnx_codes']:
-            code = list(stock_analysis['hnx_codes'])[0]
-            return code, 'HNX', 'code'
-        elif stock_analysis['upcom_codes']:
-            code = list(stock_analysis['upcom_codes'])[0]
-            return code, 'UPCoM', 'code'
-        elif stock_analysis['hose_codes']:
-            code = list(stock_analysis['hose_codes'])[0]
-            return code, 'HOSE', 'code'
+        # Pattern 3: (ABC, HOSE), (ABC, HNX), (ABC, UPCOM)
+        match = re.search(r'\(([A-Z0-9]{3})\s*,\s*(?:HOSE|HNX|UPCOM)\)', text_upper)
+        if match:
+            code = match.group(1)
+            context = text_upper[max(0, match.start()-30):match.end()+30]
+            if is_valid_ambiguous_code(code, context):
+                if code in self.hnx_stocks:
+                    return code, 'HNX', 'code'
+                elif code in self.upcom_stocks:
+                    return code, 'UPCoM', 'code'
+        
+        # Pattern 4: Mã CK: ABC, Mã chứng khoán: ABC, Mã: ABC
+        match = re.search(r'MÃ\s*(?:CK|CHỨNG KHOÁN|CỔ PHIẾU)?:\s*([A-Z0-9]{3})', text_upper)
+        if match:
+            code = match.group(1)
+            context = text_upper[max(0, match.start()-30):match.end()+30]
+            if is_valid_ambiguous_code(code, context):
+                if code in self.hnx_stocks:
+                    return code, 'HNX', 'code'
+                elif code in self.upcom_stocks:
+                    return code, 'UPCoM', 'code'
+        
+        # Pattern 5: Cổ phiếu ABC
+        match = re.search(r'CỔ\s+PHIẾU\s+([A-Z0-9]{3})\b', text_upper)
+        if match:
+            code = match.group(1)
+            context = text_upper[max(0, match.start()-30):match.end()+30]
+            if is_valid_ambiguous_code(code, context):
+                if code in self.hnx_stocks:
+                    return code, 'HNX', 'code'
+                elif code in self.upcom_stocks:
+                    return code, 'UPCoM', 'code'
+        
+        # Tìm theo mã (với kiểm tra ambiguous)
+        for code in self.hnx_stocks:
+            match = re.search(r'\b' + code + r'\b', text_upper)
+            if match:
+                context = text_upper[max(0, match.start()-30):match.end()+30]
+                
+                # Bỏ qua nếu là CTCK
+                if re.search(r'CHỨNG KHOÁN\s+' + code, context):
+                    continue
+                
+                # Kiểm tra ambiguous
+                if not is_valid_ambiguous_code(code, context):
+                    continue
+                
+                return code, 'HNX', 'code'
+        
+        for code in self.upcom_stocks:
+            match = re.search(r'\b' + code + r'\b', text_upper)
+            if match:
+                context = text_upper[max(0, match.start()-30):match.end()+30]
+                
+                # Bỏ qua nếu là CTCK
+                if re.search(r'CHỨNG KHOÁN\s+' + code, context):
+                    continue
+                
+                # Kiểm tra ambiguous
+                if not is_valid_ambiguous_code(code, context):
+                    continue
+                
+                return code, 'UPCoM', 'code'
+        
+        # Tìm theo tên
+        words = text_lower.split()
+        matched_codes = []
+        for word in words:
+            if len(word) > 3 and word in self.name_to_code:
+                matched_codes.extend(self.name_to_code[word])
+        
+        if matched_codes:
+            from collections import Counter
+            most_common = Counter(matched_codes).most_common(1)[0][0]
+            exchange = self.stock_to_exchange.get(most_common)
+            return most_common, exchange, 'name'
         
         return None, None, None
     
-    def parse_date(self, date_text):
-        """Parse date từ text"""
-        try:
-            for fmt in [
-                '%Y-%m-%dT%H:%M:%S%z',
-                '%Y-%m-%d %H:%M:%S',
-                '%d/%m/%Y %H:%M',
-                '%Y-%m-%d',
-                '%d/%m/%Y',
-            ]:
-                try:
-                    dt = datetime.strptime(date_text[:19], fmt[:19])
-                    if dt.tzinfo is None:
-                        dt = dt.replace(tzinfo=self.vietnam_tz)
-                    return dt
-                except:
-                    continue
-            return None
-        except:
-            return None
-    
-    def fetch_url(self, url, max_retries=3):
-        """Fetch URL với retry"""
+    def fetch_url(self, url, max_retries=2):
         for attempt in range(max_retries):
             try:
                 response = self.session.get(url, headers=self.headers, timeout=15)
-                if response.status_code == 200:
-                    return response
+                response.raise_for_status()
+                return response
             except:
-                if attempt == max_retries - 1:
-                    return None
-                time.sleep(1)
+                if attempt < max_retries - 1:
+                    time.sleep(1)
+                return None
+    
+    def parse_date(self, date_text):
+        """Parse ngày tháng từ nhiều định dạng khác nhau"""
+        if not date_text:
+            return None
+        
+        try:
+            # Loại bỏ khoảng trắng thừa
+            date_text = date_text.strip()
+            
+            # Định dạng ISO: 2025-10-21T14:30:00+07:00
+            if 'T' in date_text or '+' in date_text:
+                match = re.search(r'(\d{4})-(\d{2})-(\d{2})', date_text)
+                if match:
+                    year, month, day = match.groups()
+                    return datetime(int(year), int(month), int(day), tzinfo=self.vietnam_tz)
+            
+            # Định dạng: 21/10/2025 14:30
+            match = re.search(r'(\d{1,2})[/-](\d{1,2})[/-](\d{4})', date_text)
+            if match:
+                day, month, year = match.groups()
+                return datetime(int(year), int(month), int(day), tzinfo=self.vietnam_tz)
+            
+            # Định dạng: 21-10-2025
+            match = re.search(r'(\d{1,2})[/-](\d{1,2})[/-](\d{4})', date_text)
+            if match:
+                day, month, year = match.groups()
+                return datetime(int(year), int(month), int(day), tzinfo=self.vietnam_tz)
+            
+            # Định dạng tiếng Việt: "21 Tháng 10 2025" hoặc "21/10/2025"
+            match = re.search(r'(\d{1,2})\s*[/-]\s*(\d{1,2})\s*[/-]\s*(\d{4})', date_text)
+            if match:
+                day, month, year = match.groups()
+                return datetime(int(year), int(month), int(day), tzinfo=self.vietnam_tz)
+            
+            # Từ khóa thời gian tương đối
+            date_text_lower = date_text.lower()
+            now = datetime.now(self.vietnam_tz)
+            
+            if 'hôm nay' in date_text_lower or 'today' in date_text_lower:
+                return now
+            elif 'hôm qua' in date_text_lower or 'yesterday' in date_text_lower:
+                return now - timedelta(days=1)
+            elif 'giờ trước' in date_text_lower or 'hours ago' in date_text_lower:
+                hours_match = re.search(r'(\d+)', date_text)
+                if hours_match:
+                    hours = int(hours_match.group(1))
+                    return now - timedelta(hours=hours)
+            elif 'phút trước' in date_text_lower or 'minutes ago' in date_text_lower:
+                return now
+            
+        except:
+            pass
+        
         return None
     
     def fetch_article_content(self, url):
-        """Fetch nội dung chi tiết bài viết"""
+        """Lấy nội dung bài viết - từ V1.0"""
         try:
             response = self.fetch_url(url)
             if not response:
@@ -621,9 +724,13 @@ class StockScraperWeb:
             response.encoding = 'utf-8'
             soup = BeautifulSoup(response.text, 'html.parser')
             
-            # Tìm ngày tháng
+            # Tìm ngày - MỞ RỘNG CÁC SELECTOR
+            date_text = None
             article_date_obj = None
+            
+            # Thử nhiều pattern khác nhau
             for pattern in [
+                {'class': re.compile(r'date|time|publish|post.*date', re.I)},
                 {'itemprop': 'datePublished'},
                 {'property': 'article:published_time'},
                 {'name': 'pubdate'},
@@ -637,6 +744,7 @@ class StockScraperWeb:
                         if article_date_obj:
                             break
             
+            # Nếu không tìm thấy, dùng ngày hiện tại
             if not article_date_obj:
                 article_date_obj = datetime.now(self.vietnam_tz)
             
@@ -680,14 +788,12 @@ class StockScraperWeb:
             links = soup.find_all('a', href=True)
             total_links = len(links)
             
-            # ============================================================
-            # BƯỚC 1: CÀO TOÀN BỘ BÀI VIẾT
-            # ============================================================
+            # BƯỚC 1: CÀO TOÀN BỘ BÀI VIẾT TRƯỚC
             all_crawled_articles = []
             
             for idx, link_tag in enumerate(links):
                 if progress_callback:
-                    progress = (idx + 1) / total_links * 0.5
+                    progress = (idx + 1) / total_links * 0.5  # 50% cho việc cào
                     progress_callback(f"{source_name} - Đang cào: {idx+1}/{total_links}", progress)
                 
                 href = link_tag.get('href', '')
@@ -695,13 +801,17 @@ class StockScraperWeb:
                 if pattern(href) and href not in seen:
                     title = link_tag.get_text(strip=True)
                     
+                    # ✅ LỌC TIN CHUNG NGAY TẠI TIÊU ĐỀ
                     if title and len(title) > 30 and not self.is_generic_news(title):
                         seen.add(href)
                         full_link = urljoin(url, href)
                         
+                        # FETCH NỘI DUNG ĐẦY ĐỦ
                         content, article_date_str, article_date_obj = self.fetch_article_content(full_link)
                         
+                        # ✅ LỌC THỜI GIAN NGAY TẠI ĐÂY
                         if content and article_date_obj:
+                            # Kiểm tra xem bài viết có nằm trong khoảng thời gian không
                             if article_date_obj >= self.cutoff_time:
                                 all_crawled_articles.append({
                                     'title': title,
@@ -710,47 +820,26 @@ class StockScraperWeb:
                                     'date_obj': article_date_obj,
                                     'content': content
                                 })
+                            # else: bỏ qua bài viết quá cũ
                             
                             time.sleep(0.3)
                             
-                            if len(all_crawled_articles) >= max_articles * 3:
+                            if len(all_crawled_articles) >= max_articles * 3:  # Cào nhiều hơn để lọc sau
                                 break
             
             self.stats['total_crawled'] = len(all_crawled_articles)
             
-            # ============================================================
-            # BƯỚC 2: QUÉT TẤT CẢ MÃ CK & LỌC THEO ĐIỀU KIỆN
-            # ============================================================
+            # BƯỚC 2: LỌC MÃ CK TỪ NỘI DUNG
             for idx, article in enumerate(all_crawled_articles):
                 if progress_callback:
-                    progress = 0.5 + (idx + 1) / len(all_crawled_articles) * 0.5
-                    progress_callback(f"{source_name} - Đang phân tích: {idx+1}/{len(all_crawled_articles)}", progress)
+                    progress = 0.5 + (idx + 1) / len(all_crawled_articles) * 0.5  # 50% còn lại cho việc lọc
+                    progress_callback(f"{source_name} - Đang lọc mã: {idx+1}/{len(all_crawled_articles)}", progress)
                 
-                # QUÉT TOÀN BỘ BÀI 1 LƯỢT
+                # TRÍCH XUẤT MÃ CK TỪ NỘI DUNG (không phải tiêu đề)
                 full_text = article['title'] + " " + article['content']
-                stock_analysis = self.extract_all_stocks_from_article(full_text)
-                
-                # ============================================================
-                # ĐIỀU KIỆN LỌC: CHỈ GIỮ BÀI CÓ HNX/UPCoM
-                # BỎ QUA BÀI CHỈ CÓ HOSE
-                # ============================================================
-                if stock_analysis['has_only_hose']:
-                    # Bỏ qua bài chỉ có HOSE
-                    self.stats['hose_only_filtered'] += 1
-                    continue
-                
-                if not stock_analysis['has_hnx_upcom']:
-                    # Không có mã nào hoặc không có HNX/UPCoM -> bỏ qua
-                    continue
-                
-                # ============================================================
-                # BÀI ĐẠT ĐIỀU KIỆN -> XỬ LÝ
-                # ============================================================
-                
-                # Lấy mã chính để hiển thị (ưu tiên HNX/UPCoM)
                 stock_code, exchange, match_method = self.extract_stock(full_text)
                 
-                if stock_code:
+                if stock_code and exchange in ['HNX', 'UPCoM']:
                     if match_method == 'code':
                         self.stats['found_by_code'] += 1
                     else:
@@ -766,7 +855,7 @@ class StockScraperWeb:
                     
                     if exchange == 'HNX':
                         self.stats['hnx_found'] += 1
-                    elif exchange == 'UPCoM':
+                    else:
                         self.stats['upcom_found'] += 1
                     
                     if sentiment_result['risk_level'] == 'Nghiêm trọng':
@@ -774,17 +863,13 @@ class StockScraperWeb:
                     elif sentiment_result['risk_level'] == 'Cảnh báo':
                         self.stats['warning_risk'] += 1
                     
-                    # Tạo danh sách tất cả mã tìm thấy
-                    all_codes_str = ', '.join(sorted(stock_analysis['all_codes']))
-                    
                     self.all_articles.append({
                         'Tiêu đề': article['title'],
                         'Link': article['link'],
                         'Ngày': article['date'],
-                        'Mã CK chính': stock_code,
+                        'Mã CK': stock_code,
                         'Tên công ty': company_name,
                         'Sàn': exchange,
-                        'Tất cả mã': all_codes_str,  # THÊM TRƯỜNG MỚI
                         'Sentiment': sentiment_result['sentiment_label'],
                         'Điểm': sentiment_result['sentiment_score'],
                         'Risk': sentiment_result['risk_level'],
@@ -827,13 +912,14 @@ class StockScraperWeb:
         df.insert(0, 'STT', range(1, len(df) + 1))
         
         return df
+
 # ============================================================
 # STREAMLIT APP
 # ============================================================
 
 def main():
-    st.markdown('<div class="main-header">📈 TOOL THU THẬP TIN ĐỒN 2.0</div>', unsafe_allow_html=True)
-    st.markdown('<div style="text-align:center;color:#666;margin-bottom:2rem;">HNX & UPCoM </div>', unsafe_allow_html=True)
+    st.markdown('<div class="main-header">📈 TOOL CÀO TIN V2.4</div>', unsafe_allow_html=True)
+    st.markdown('<div style="text-align:center;color:#666;margin-bottom:2rem;">HNX & UPCoM - Upload + Summarize + Sentiment</div>', unsafe_allow_html=True)
     
     # Sidebar
     with st.sidebar:
