@@ -550,9 +550,6 @@ class StockScraperWeb:
             if code not in self.hnx_stocks and code not in self.upcom_stocks:
                 continue
             
-            # ✅ MỚI: Kiểm tra nếu là mã "nguy hiểm" - BẮT BUỘC phải có tín hiệu rõ ràng
-            is_risky_code = code in RISKY_CODES
-            
             # Lấy context xung quanh (50 ký tự trước và sau)
             start = max(0, match.start() - 50)
             end = min(len(text_upper), match.end() + 50)
@@ -584,24 +581,12 @@ class StockScraperWeb:
                     has_indicator = True
                     break
             
-            # ✅ QUY TẮC QUYẾT ĐỊNH:
-            # - Nếu là mã "nguy hiểm": BẮT BUỘC phải có tín hiệu
-            # - Nếu là mã bình thường: có tín hiệu thì return, không có thì tiếp tục tìm
-            if is_risky_code:
-                # Mã nguy hiểm - chỉ return nếu có tín hiệu
-                if has_indicator:
-                    if code in self.hnx_stocks:
-                        return code, 'HNX', 'code'
-                    elif code in self.upcom_stocks:
-                        return code, 'UPCoM', 'code'
-                # Nếu không có tín hiệu, bỏ qua và tiếp tục tìm
-            else:
-                # Mã bình thường - có tín hiệu thì return ngay
-                if has_indicator:
-                    if code in self.hnx_stocks:
-                        return code, 'HNX', 'code'
-                    elif code in self.upcom_stocks:
-                        return code, 'UPCoM', 'code'
+            # Nếu có tín hiệu nhận diện, return mã này
+            if has_indicator:
+                if code in self.hnx_stocks:
+                    return code, 'HNX', 'code'
+                elif code in self.upcom_stocks:
+                    return code, 'UPCoM', 'code'
         
         # ============================================================
         # BƯỚC 3: TÌM THEO TÊN CÔNG TY (ƯU TIÊN THẤP NHẤT)
