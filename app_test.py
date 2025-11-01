@@ -451,24 +451,25 @@ class StockScraperWeb:
         return False
     
     def extract_stock(self, text):
-        """Trích xuất mã CK - CHỈ KHỚP KHI VIẾT HOA ĐÚNG"""
-        # KHÔNG uppercase toàn bộ text nữa, giữ nguyên case gốc
+        """Trích xuất mã CK - CẢI TIẾN"""
+        text_upper = text.upper()
+        text_lower = text.lower()
         
-        # Blacklist patterns - tìm trong text gốc
+        # Blacklist cũ
         blacklist_patterns = [
-            r'[Cc]hứng khoán\s+\w+\s+có\s+nhận định',
-            r'[Cc]ông ty\s+[Cc]hứng khoán',
+            r'CHỨNG KHOÁN\s+\w+\s+CÓ\s+NHẬN ĐỊNH',
+            r'CÔNG TY\s+CHỨNG KHOÁN',
             r'CTCK\s+\w+',
             r'VN-INDEX',
         ]
         
         for pattern in blacklist_patterns:
-            if re.search(pattern, text):
+            if re.search(pattern, text_upper):
                 return None, None, None
         
-        # ✅ MỚI: TÌM THEO PATTERN CỦA BÁO CHÍ - GIỮ NGUYÊN CASE
-        # Pattern 1: (UPCOM: ABC), (HNX: ABC) - CHỈ UPPERCASE
-        match = re.search(r'\((?:UPCOM|HNX):\s*([A-Z]{3})\)', text)
+        # ✅ MỚI: TÌM THEO PATTERN CỦA BÁO CHÍ
+        # Pattern 1: (UPCOM: ABC), (HNX: ABC)
+        match = re.search(r'\((?:UPCOM|HNX):\s*([A-Z]{3})\)', text_upper)
         if match:
             code = match.group(1)
             if code in self.hnx_stocks:
@@ -476,8 +477,8 @@ class StockScraperWeb:
             elif code in self.upcom_stocks:
                 return code, 'UPCoM', 'code'
         
-        # Pattern 2: (ABC - UPCOM), (ABC - HNX) - CHỈ UPPERCASE
-        match = re.search(r'\(([A-Z]{3})\s*[-–]\s*(?:UPCOM|HNX|upcom|hnx)\)', text)
+        # Pattern 2: (ABC - UPCOM), (ABC - HNX)
+        match = re.search(r'\(([A-Z]{3})\s*[-–]\s*(?:UPCOM|HNX)\)', text_upper)
         if match:
             code = match.group(1)
             if code in self.hnx_stocks:
@@ -485,8 +486,8 @@ class StockScraperWeb:
             elif code in self.upcom_stocks:
                 return code, 'UPCoM', 'code'
         
-        # Pattern 3: (ABC, UPCOM), (ABC, HNX) - CHỈ UPPERCASE
-        match = re.search(r'\(([A-Z]{3})\s*,\s*(?:UPCOM|HNX|upcom|hnx)\)', text)
+        # Pattern 3: (ABC, UPCOM), (ABC, HNX)
+        match = re.search(r'\(([A-Z]{3})\s*,\s*(?:UPCOM|HNX)\)', text_upper)
         if match:
             code = match.group(1)
             if code in self.hnx_stocks:
@@ -494,8 +495,8 @@ class StockScraperWeb:
             elif code in self.upcom_stocks:
                 return code, 'UPCoM', 'code'
         
-        # Pattern 4: Mã CK: ABC hoặc Mã: ABC - CHỈ UPPERCASE
-        match = re.search(r'[Mm]ã\s*(?:[Cc][Kk]|[Cc]hứng khoán)?:\s*([A-Z]{3})\b', text)
+        # Pattern 4: Mã CK: ABC hoặc Mã: ABC
+        match = re.search(r'MÃ\s*(?:CK|CHỨNG KHOÁN)?:\s*([A-Z]{3})', text_upper)
         if match:
             code = match.group(1)
             if code in self.hnx_stocks:
@@ -503,44 +504,24 @@ class StockScraperWeb:
             elif code in self.upcom_stocks:
                 return code, 'UPCoM', 'code'
         
-        # ✅ QUAN TRỌNG: Tìm theo mã - CHỈ KHỚP KHI VIẾT HOA
-        # Tìm trong HNX
+        # Tìm theo mã
         for code in self.hnx_stocks:
-            # Chỉ tìm mã khi VIẾT HOA (3 ký tự in hoa)
-            pattern = r'\b' + code + r'\b'
-            match = re.search(pattern, text)
+            match = re.search(r'\b' + code + r'\b', text_upper)
             if match:
-                # Kiểm tra context xung quanh
-                context_start = max(0, match.start() - 20)
-                context_end = min(len(text), match.end() + 20)
-                context = text[context_start:context_end]
-                
-                # Loại trừ nếu là tên công ty chứng khoán
-                if re.search(r'[Cc]hứng khoán\s+' + code, context):
+                context = text_upper[max(0, match.start()-10):match.end()+10]
+                if re.search(r'CHỨNG KHOÁN\s+' + code, context):
                     continue
-                if re.search(r'CTCK\s+' + code, context):
-                    continue
-                
                 return code, 'HNX', 'code'
         
-        # Tìm trong UPCoM
         for code in self.upcom_stocks:
-            pattern = r'\b' + code + r'\b'
-            match = re.search(pattern, text)
+            match = re.search(r'\b' + code + r'\b', text_upper)
             if match:
-                context_start = max(0, match.start() - 20)
-                context_end = min(len(text), match.end() + 20)
-                context = text[context_start:context_end]
-                
-                if re.search(r'[Cc]hứng khoán\s+' + code, context):
+                context = text_upper[max(0, match.start()-10):match.end()+10]
+                if re.search(r'CHỨNG KHOÁN\s+' + code, context):
                     continue
-                if re.search(r'CTCK\s+' + code, context):
-                    continue
-                
                 return code, 'UPCoM', 'code'
         
-        # Tìm theo tên công ty (giữ nguyên logic cũ)
-        text_lower = text.lower()
+        # Tìm theo tên
         words = text_lower.split()
         matched_codes = []
         for word in words:
