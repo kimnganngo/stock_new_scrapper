@@ -362,19 +362,9 @@ class StockScraperWeb:
             return content
         
         full_text = title + ". " + content
-        
-        # ✅ SỬA: Ngắt câu bằng ". " (dấu chấm + khoảng trắng) thay vì chỉ dấu chấm
-        # Tránh nhầm với số như "1.000.000"
-        sentences = re.split(r'\.\s+', full_text)  # Thay đổi từ [.!?]+ thành .\s+
-        
-        # Xử lý các trường hợp dấu ! và ? (vẫn cần tách)
-        final_sentences = []
-        for s in sentences:
-            # Tách thêm theo ! và ?
-            sub_sentences = re.split(r'[!?]+\s+', s)
-            final_sentences.extend(sub_sentences)
-        
-        sentences = [s.strip() for s in final_sentences if len(s.strip()) > 30]
+        # Ngắt câu bằng ". " (dấu chấm + khoảng trắng) để tránh nhầm với số như 1.000.000
+        sentences = re.split(r'\.\s+|[!?]+\s*', full_text)
+        sentences = [s.strip() for s in sentences if len(s.strip()) > 30]
         
         if len(sentences) <= max_sentences:
             return '. '.join(sentences) + '.'
