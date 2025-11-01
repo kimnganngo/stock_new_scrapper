@@ -486,15 +486,14 @@ class StockScraperWeb:
     
     def extract_stock(self, text):
         """
-        Trích xuất mã CK - QUÉT TOÀN BỘ BÀI
-        - Quét từ đầu đến cuối để tìm TẤT CẢ mã trong danh sách
-        - Nếu gặp mã HOSE có tín hiệu rõ ràng => DỪNG và loại bỏ
-        - Nếu có nhiều mã HNX/UPCoM => ưu tiên mã có tín hiệu rõ ràng
-        - KHÔNG UPPERCASE - chỉ khớp mã viết hoa đúng chuẩn
+        Trích xuất mã CK - QUÉT THEO ƯU TIÊN
+        1. TÌM TÍN HIỆU trước (mã CK, cổ phiếu, HNX, UPCoM,...)
+        2. SO KHỚP mã xung quanh tín hiệu
+        3. Nếu không có → Quét toàn bộ bài
         """
-        # KHÔNG uppercase text nữa, giữ nguyên case
-        text_original = text  # Giữ nguyên
-        text_upper = text.upper()  # Chỉ dùng cho một số pattern đặc biệt
+        # Giữ nguyên case gốc
+        text_original = text
+        text_upper = text.upper()
         
         # Blacklist
         blacklist_patterns = [
@@ -510,10 +509,6 @@ class StockScraperWeb:
             if re.search(pattern, text_upper):
                 return None, None, None
         
-        # ⚠️ DANH SÁCH MÃ DỄ BỊ NHẦM - KHÔNG CẦN NỮA vì đã lọc bằng case-sensitive
-        # Nhưng vẫn giữ để kiểm tra các pattern đặc biệt
-        AMBIGUOUS_CODES = {'THU', 'TIN', 'USD', 'CEO', 'CAR', 'HAI', 'VAN', 'NGO', 'BAO', 'QUA', 'NAM', 'TAO'}
-        
         # ✅ HÀM KIỂM TRA TÍN HIỆU RÕ RÀNG
         def has_clear_signal(code, context):
             """Kiểm tra xem có tín hiệu nhận diện rõ ràng không"""
@@ -524,10 +519,10 @@ class StockScraperWeb:
                 r'CỔ\s+PHIẾU\s+' + code,
                 r'\(' + code + r'\s*[-–,]\s*(?:HNX|UPCOM|HOSE)\)',
                 r'\((?:HNX|UPCOM|HOSE)\s*[-–,:]\s*' + code + r'\)',
-                r'\(\s*' + code + r'\s*\)',  # (CEO)
-                r'\(\s*MÃ\s*:\s*' + code + r'\s*\)',  # (mã: CEO)
-                r'\(\s*MÃ\s+CỔ\s+PHIẾU\s*:\s*' + code + r'\s*\)',  # (mã cổ phiếu: CEO)
-                r'\b' + code + r'\s*[-–]\s*(?:HNX|UPCOM|HOSE)',  # CEO - HNX
+                r'\(\s*' + code + r'\s*\)',
+                r'\(\s*MÃ\s*:\s*' + code + r'\s*\)',
+                r'\(\s*MÃ\s+CỔ\s+PHIẾU\s*:\s*' + code + r'\s*\)',
+                r'\b' + code + r'\s*[-–]\s*(?:HNX|UPCOM|HOSE)',
             ]
             
             for pattern in signal_patterns:
@@ -535,17 +530,87 @@ class StockScraperWeb:
                     return True
             return False
         
-        # 🔍 BƯỚC 1: QUÉT TOÀN BỘ BÀI TÌM TẤT CẢ MÃ (CASE-SENSITIVE)
+        # 🎯 BƯỚC 1: TÌM CÁC TÍN HIỆU TRƯỚC
+        signal_keywords = [
+            r'MÃ\s+CHỨNG\s+KHOÁN\s*:\s*([A-Z0-9]{3})',
+            r'MÃ\s+CỔ\s+PHIẾU\s*:\s*([A-Z0-9]{3})',
+            r'MÃ\s+CK\s*:\s*([A-Z0-9]{3})',
+            r'MÃ\s*:\s*([A-Z0-9]{3})',
+            r'CỔ\s+PHIẾU\s+([A-Z0-9]{3})\b',
+            r'CÔNG\s+TY\s+([A-Z0-9]{3})\b',
+            r'\(([A-Z0-9]{3})\s*[-–,]\s*(?:HNX|UPCOM|HOSE)\)',
+            r'\((?:HNX|UPCOM|HOSE)\s*[-–,:]\s*([A-Z0-9]{3})\)',
+            r'\(\s*([A-Z0-9]{3})\s*\)',
+        ]
+        
+        all_stocks_set = self.hnx_stocks | self.upcom_stocks | self.hose_stocks
+        found_from_signals = []
+        
+        # Tìm mã CK quanh các tín hiệu
+        for pattern in signal_keywords:
+            for match in re.finditer(pattern, text_upper):
+                code = match.group(1)
+                
+                # Kiểm tra xem mã có trong danh sách không
+                if code not in all_stocks_set:
+                    continue
+                
+                position = match.start()
+                
+                # Lấy context gốc (giữ nguyên case) để kiểm tra case-sensitive
+                context_original = text_original[max(0, position-40):min(len(text_original), position+80)]
+                
+                # ✅ KIỂM TRA CASE-SENSITIVE: Mã phải viết hoa trong văn bản gốc
+                if code not in context_original:
+                    continue
+                
+                # Bỏ qua nếu là CTCK
+                context_upper = context_original.upper()
+                if re.search(r'CHỨNG KHOÁN\s+' + code, context_upper):
+                    continue
+                
+                # Xác định sàn
+                if code in self.hose_stocks:
+                    exchange = 'HOSE'
+                elif code in self.hnx_stocks:
+                    exchange = 'HNX'
+                else:
+                    exchange = 'UPCoM'
+                
+                found_from_signals.append({
+                    'code': code,
+                    'exchange': exchange,
+                    'position': position,
+                    'has_signal': True
+                })
+        
+        # 🎯 BƯỚC 2: NẾU TÌM THẤY TỪ TÍN HIỆU → ƯU TIÊN XỬ LÝ TRƯỚC
+        if found_from_signals:
+            # Sắp xếp theo vị trí
+            found_from_signals.sort(key=lambda x: x['position'])
+            
+            # Kiểm tra HOSE
+            for stock in found_from_signals:
+                if stock['exchange'] == 'HOSE' and stock['has_signal']:
+                    return None, None, None
+            
+            # Lọc HNX & UPCoM
+            valid_stocks = [s for s in found_from_signals if s['exchange'] in ['HNX', 'UPCoM']]
+            
+            if valid_stocks:
+                # Lấy mã đầu tiên (có tín hiệu)
+                selected = valid_stocks[0]
+                return selected['code'], selected['exchange'], 'code'
+        
+        # 🎯 BƯỚC 3: NẾU KHÔNG TÌM THẤY TỪ TÍN HIỆU → QUÉT TOÀN BỘ BÀI
         all_stocks = list(self.hnx_stocks) + list(self.upcom_stocks) + list(self.hose_stocks)
-        found_stocks = []  # [(code, exchange, position, has_signal)]
+        found_stocks = []
         
         for code in all_stocks:
-            # ✅ TÌM MÃ CASE-SENSITIVE: chỉ khớp khi viết hoa đúng
-            # Pattern: word boundary + MÃ VIẾT HOA + word boundary
+            # Tìm mã CASE-SENSITIVE
             pattern = r'\b' + code + r'\b'
             
-            # Tìm tất cả vị trí xuất hiện của mã (CASE-SENSITIVE)
-            for match in re.finditer(pattern, text_original):  # Dùng text_original thay vì text_upper
+            for match in re.finditer(pattern, text_original):
                 position = match.start()
                 context = text_original[max(0, position-40):min(len(text_original), position+40)]
                 
@@ -586,35 +651,31 @@ class StockScraperWeb:
                 from collections import Counter
                 most_common = Counter(matched_codes).most_common(1)[0][0]
                 exchange = self.stock_to_exchange.get(most_common)
-                # Chỉ trả về nếu KHÔNG phải HOSE
                 if exchange and exchange != 'HOSE':
                     return most_common, exchange, 'name'
             
             return None, None, None
         
-        # Sắp xếp theo vị trí xuất hiện (từ đầu xuống)
+        # Sắp xếp theo vị trí
         found_stocks.sort(key=lambda x: x['position'])
         
-        # 🔍 BƯỚC 2: XỬ LÝ MÃ HOSE
-        # Nếu có mã HOSE với tín hiệu rõ ràng => LOẠI BỎ ngay
+        # Xử lý HOSE
         for stock in found_stocks:
             if stock['exchange'] == 'HOSE' and stock['has_signal']:
-                return None, None, None  # Loại bỏ bài này
+                return None, None, None
         
-        # 🔍 BƯỚC 3: LỌC CHỈ LẤY HNX & UPCOM
+        # Lọc HNX & UPCoM
         valid_stocks = [s for s in found_stocks if s['exchange'] in ['HNX', 'UPCoM']]
         
         if not valid_stocks:
             return None, None, None
         
-        # 🔍 BƯỚC 4: ƯU TIÊN MÃ CÓ TÍN HIỆU RÕ RÀNG
+        # Ưu tiên mã có tín hiệu
         stocks_with_signal = [s for s in valid_stocks if s['has_signal']]
         
         if stocks_with_signal:
-            # Lấy mã có tín hiệu xuất hiện đầu tiên
             selected = stocks_with_signal[0]
         else:
-            # Lấy mã xuất hiện đầu tiên
             selected = valid_stocks[0]
         
         return selected['code'], selected['exchange'], 'code'
