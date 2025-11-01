@@ -332,6 +332,8 @@ class StockScraperWeb:
             self.stock_to_exchange[code] = 'HNX'
         for code in self.upcom_stocks:
             self.stock_to_exchange[code] = 'UPCoM'
+        for code in self.hose_stocks:
+            self.stock_to_exchange[code] = 'HOSE'
         
         self.stats = {
             'total_crawled': 0,
@@ -483,9 +485,16 @@ class StockScraperWeb:
         return False
     
     def extract_stock(self, text):
-        """Trích xuất mã CK - CẢI TIẾN HOÀN TOÀN"""
-        text_upper = text.upper()
-        text_lower = text.lower()
+        """
+        Trích xuất mã CK - QUÉT TOÀN BỘ BÀI
+        - Quét từ đầu đến cuối để tìm TẤT CẢ mã trong danh sách
+        - Nếu gặp mã HOSE có tín hiệu rõ ràng => DỪNG và loại bỏ
+        - Nếu có nhiều mã HNX/UPCoM => ưu tiên mã có tín hiệu rõ ràng
+        - KHÔNG UPPERCASE - chỉ khớp mã viết hoa đúng chuẩn
+        """
+        # KHÔNG uppercase text nữa, giữ nguyên case
+        text_original = text  # Giữ nguyên
+        text_upper = text.upper()  # Chỉ dùng cho một số pattern đặc biệt
         
         # Blacklist
         blacklist_patterns = [
@@ -501,152 +510,114 @@ class StockScraperWeb:
             if re.search(pattern, text_upper):
                 return None, None, None
         
-        # ⚠️ DANH SÁCH MÃ DỄ BỊ NHẦM (False Positive)
-        # Những mã này phải có tín hiệu xung quanh rõ ràng mới được ghi nhận
+        # ⚠️ DANH SÁCH MÃ DỄ BỊ NHẦM - KHÔNG CẦN NỮA vì đã lọc bằng case-sensitive
+        # Nhưng vẫn giữ để kiểm tra các pattern đặc biệt
         AMBIGUOUS_CODES = {'THU', 'TIN', 'USD', 'CEO', 'CAR', 'HAI', 'VAN', 'NGO', 'BAO', 'QUA', 'NAM', 'TAO'}
         
-        # ⚠️ CÁC TỪ THƯỜNG BỊ NHẦM
-        FALSE_POSITIVE_PATTERNS = {
-            'THU': [r'DOANH\s+THU', r'THU\s+NHẬP', r'THU\s+ĐƯỢC', r'THU\s+VỀ', r'THU\s+HỒI'],
-            'TIN': [r'TIN\s+VẮN', r'TIN\s+TỨC', r'NHẬN\s+TIN', r'THEO\s+TIN', r'TIN\s+NHANH', r'TIN\s+RẰNG'],
-            'USD': [r'\d+\s*USD', r'USD\s*/'],
-            'CEO': [r'VỊ\s+TRÍ\s+CEO', r'LÀM\s+CEO', r'CHỨC\s+CEO'],
-            'CAR': [r'XE\s+CAR', r'Ô\s+TÔ\s+CAR'],
-            'VAN': [r'TIN\s+VAN', r'VẬN\s+CHUYỂN'],
-            'NAM': [r'NĂM\s+\d', r'\d+\s+NĂM', r'NĂM\s+NAY', r'NĂM\s+NGOÁI', r'NĂM\s+SAU', r'NĂM\s+TRƯỚC'],
-        }
-        
-        # ✅ HÀM KIỂM TRA MÃ AMBIGUOUS
-        def is_valid_ambiguous_code(code, text_context):
-            """Kiểm tra xem mã dễ nhầm có tín hiệu rõ ràng không"""
-            if code not in AMBIGUOUS_CODES:
-                return True  # Mã bình thường, không cần kiểm tra
-            
-            # Kiểm tra false positive patterns
-            if code in FALSE_POSITIVE_PATTERNS:
-                for fp_pattern in FALSE_POSITIVE_PATTERNS[code]:
-                    if re.search(fp_pattern, text_context):
-                        return False  # Đây là false positive
-            
-            # Các pattern HỢP LỆ cho mã ambiguous
-            valid_patterns = [
+        # ✅ HÀM KIỂM TRA TÍN HIỆU RÕ RÀNG
+        def has_clear_signal(code, context):
+            """Kiểm tra xem có tín hiệu nhận diện rõ ràng không"""
+            context_upper = context.upper()
+            signal_patterns = [
                 r'CÔNG\s+TY\s+' + code,
                 r'MÃ\s+(?:CK|CHỨNG KHOÁN|CỔ PHIẾU)?\s*:\s*' + code,
                 r'CỔ\s+PHIẾU\s+' + code,
                 r'\(' + code + r'\s*[-–,]\s*(?:HNX|UPCOM|HOSE)\)',
                 r'\((?:HNX|UPCOM|HOSE)\s*[-–,:]\s*' + code + r'\)',
-                r'\(' + code + r'\)',  # Trong ngoặc đơn thuần
-                r'\b' + code + r'\s*[-–]\s*(?:HNX|UPCOM|HOSE)',
+                r'\(\s*' + code + r'\s*\)',  # (CEO)
+                r'\(\s*MÃ\s*:\s*' + code + r'\s*\)',  # (mã: CEO)
+                r'\(\s*MÃ\s+CỔ\s+PHIẾU\s*:\s*' + code + r'\s*\)',  # (mã cổ phiếu: CEO)
+                r'\b' + code + r'\s*[-–]\s*(?:HNX|UPCOM|HOSE)',  # CEO - HNX
             ]
             
-            for pattern in valid_patterns:
-                if re.search(pattern, text_context):
+            for pattern in signal_patterns:
+                if re.search(pattern, context_upper):
                     return True
+            return False
+        
+        # 🔍 BƯỚC 1: QUÉT TOÀN BỘ BÀI TÌM TẤT CẢ MÃ (CASE-SENSITIVE)
+        all_stocks = list(self.hnx_stocks) + list(self.upcom_stocks) + list(self.hose_stocks)
+        found_stocks = []  # [(code, exchange, position, has_signal)]
+        
+        for code in all_stocks:
+            # ✅ TÌM MÃ CASE-SENSITIVE: chỉ khớp khi viết hoa đúng
+            # Pattern: word boundary + MÃ VIẾT HOA + word boundary
+            pattern = r'\b' + code + r'\b'
             
-            return False  # Không có tín hiệu rõ ràng
-        
-        # ✅ PATTERN MỚI - ƯU TIÊN CAO NHẤT (MÃ CK LÀ 3 KÝ TỰ: CHỮ + SỐ)
-        
-        # Pattern 1: Tên công ty (UPCOM: ABC) hoặc (HNX: ABC)
-        match = re.search(r'\((?:UPCOM|HNX):\s*([A-Z0-9]{3})\)', text_upper)
-        if match:
-            code = match.group(1)
-            context = text_upper[max(0, match.start()-30):match.end()+30]
-            if is_valid_ambiguous_code(code, context):
-                if code in self.hnx_stocks:
-                    return code, 'HNX', 'code'
-                elif code in self.upcom_stocks:
-                    return code, 'UPCoM', 'code'
-        
-        # Pattern 2: (ABC - HOSE), (ABC - HNX), (ABC - UPCOM)
-        match = re.search(r'\(([A-Z0-9]{3})\s*[-–]\s*(?:HOSE|HNX|UPCOM)\)', text_upper)
-        if match:
-            code = match.group(1)
-            context = text_upper[max(0, match.start()-30):match.end()+30]
-            if is_valid_ambiguous_code(code, context):
-                if code in self.hnx_stocks:
-                    return code, 'HNX', 'code'
-                elif code in self.upcom_stocks:
-                    return code, 'UPCoM', 'code'
-        
-        # Pattern 3: (ABC, HOSE), (ABC, HNX), (ABC, UPCOM)
-        match = re.search(r'\(([A-Z0-9]{3})\s*,\s*(?:HOSE|HNX|UPCOM)\)', text_upper)
-        if match:
-            code = match.group(1)
-            context = text_upper[max(0, match.start()-30):match.end()+30]
-            if is_valid_ambiguous_code(code, context):
-                if code in self.hnx_stocks:
-                    return code, 'HNX', 'code'
-                elif code in self.upcom_stocks:
-                    return code, 'UPCoM', 'code'
-        
-        # Pattern 4: Mã CK: ABC, Mã chứng khoán: ABC, Mã: ABC
-        match = re.search(r'MÃ\s*(?:CK|CHỨNG KHOÁN|CỔ PHIẾU)?:\s*([A-Z0-9]{3})', text_upper)
-        if match:
-            code = match.group(1)
-            context = text_upper[max(0, match.start()-30):match.end()+30]
-            if is_valid_ambiguous_code(code, context):
-                if code in self.hnx_stocks:
-                    return code, 'HNX', 'code'
-                elif code in self.upcom_stocks:
-                    return code, 'UPCoM', 'code'
-        
-        # Pattern 5: Cổ phiếu ABC
-        match = re.search(r'CỔ\s+PHIẾU\s+([A-Z0-9]{3})\b', text_upper)
-        if match:
-            code = match.group(1)
-            context = text_upper[max(0, match.start()-30):match.end()+30]
-            if is_valid_ambiguous_code(code, context):
-                if code in self.hnx_stocks:
-                    return code, 'HNX', 'code'
-                elif code in self.upcom_stocks:
-                    return code, 'UPCoM', 'code'
-        
-        # Tìm theo mã (với kiểm tra ambiguous)
-        for code in self.hnx_stocks:
-            match = re.search(r'\b' + code + r'\b', text_upper)
-            if match:
-                context = text_upper[max(0, match.start()-30):match.end()+30]
+            # Tìm tất cả vị trí xuất hiện của mã (CASE-SENSITIVE)
+            for match in re.finditer(pattern, text_original):  # Dùng text_original thay vì text_upper
+                position = match.start()
+                context = text_original[max(0, position-40):min(len(text_original), position+40)]
                 
                 # Bỏ qua nếu là CTCK
-                if re.search(r'CHỨNG KHOÁN\s+' + code, context):
+                context_upper = context.upper()
+                if re.search(r'CHỨNG KHOÁN\s+' + code, context_upper):
                     continue
                 
-                # Kiểm tra ambiguous
-                if not is_valid_ambiguous_code(code, context):
-                    continue
+                # Xác định sàn
+                if code in self.hose_stocks:
+                    exchange = 'HOSE'
+                elif code in self.hnx_stocks:
+                    exchange = 'HNX'
+                else:
+                    exchange = 'UPCoM'
                 
-                return code, 'HNX', 'code'
-        
-        for code in self.upcom_stocks:
-            match = re.search(r'\b' + code + r'\b', text_upper)
-            if match:
-                context = text_upper[max(0, match.start()-30):match.end()+30]
+                # Kiểm tra tín hiệu
+                has_signal = has_clear_signal(code, context)
                 
-                # Bỏ qua nếu là CTCK
-                if re.search(r'CHỨNG KHOÁN\s+' + code, context):
-                    continue
-                
-                # Kiểm tra ambiguous
-                if not is_valid_ambiguous_code(code, context):
-                    continue
-                
-                return code, 'UPCoM', 'code'
+                found_stocks.append({
+                    'code': code,
+                    'exchange': exchange,
+                    'position': position,
+                    'has_signal': has_signal
+                })
         
-        # Tìm theo tên
-        words = text_lower.split()
-        matched_codes = []
-        for word in words:
-            if len(word) > 3 and word in self.name_to_code:
-                matched_codes.extend(self.name_to_code[word])
+        # Nếu không tìm thấy gì
+        if not found_stocks:
+            # Thử tìm theo tên công ty
+            text_lower = text_original.lower()
+            words = text_lower.split()
+            matched_codes = []
+            for word in words:
+                if len(word) > 3 and word in self.name_to_code:
+                    matched_codes.extend(self.name_to_code[word])
+            
+            if matched_codes:
+                from collections import Counter
+                most_common = Counter(matched_codes).most_common(1)[0][0]
+                exchange = self.stock_to_exchange.get(most_common)
+                # Chỉ trả về nếu KHÔNG phải HOSE
+                if exchange and exchange != 'HOSE':
+                    return most_common, exchange, 'name'
+            
+            return None, None, None
         
-        if matched_codes:
-            from collections import Counter
-            most_common = Counter(matched_codes).most_common(1)[0][0]
-            exchange = self.stock_to_exchange.get(most_common)
-            return most_common, exchange, 'name'
+        # Sắp xếp theo vị trí xuất hiện (từ đầu xuống)
+        found_stocks.sort(key=lambda x: x['position'])
         
-        return None, None, None
+        # 🔍 BƯỚC 2: XỬ LÝ MÃ HOSE
+        # Nếu có mã HOSE với tín hiệu rõ ràng => LOẠI BỎ ngay
+        for stock in found_stocks:
+            if stock['exchange'] == 'HOSE' and stock['has_signal']:
+                return None, None, None  # Loại bỏ bài này
+        
+        # 🔍 BƯỚC 3: LỌC CHỈ LẤY HNX & UPCOM
+        valid_stocks = [s for s in found_stocks if s['exchange'] in ['HNX', 'UPCoM']]
+        
+        if not valid_stocks:
+            return None, None, None
+        
+        # 🔍 BƯỚC 4: ƯU TIÊN MÃ CÓ TÍN HIỆU RÕ RÀNG
+        stocks_with_signal = [s for s in valid_stocks if s['has_signal']]
+        
+        if stocks_with_signal:
+            # Lấy mã có tín hiệu xuất hiện đầu tiên
+            selected = stocks_with_signal[0]
+        else:
+            # Lấy mã xuất hiện đầu tiên
+            selected = valid_stocks[0]
+        
+        return selected['code'], selected['exchange'], 'code'
     
     def fetch_url(self, url, max_retries=2):
         for attempt in range(max_retries):
@@ -835,11 +806,11 @@ class StockScraperWeb:
                     progress = 0.5 + (idx + 1) / len(all_crawled_articles) * 0.5  # 50% còn lại cho việc lọc
                     progress_callback(f"{source_name} - Đang lọc mã: {idx+1}/{len(all_crawled_articles)}", progress)
                 
-                # TRÍCH XUẤT MÃ CK TỪ NỘI DUNG (không phải tiêu đề)
+                # TRÍCH XUẤT MÃ CK TỪ NỘI DUNG (quét toàn bộ)
                 full_text = article['title'] + " " + article['content']
                 stock_code, exchange, match_method = self.extract_stock(full_text)
                 
-                if stock_code and exchange in ['HNX', 'UPCoM']:
+                if stock_code and exchange in ['HNX', 'UPCoM']:  # Chỉ lấy HNX và UPCoM
                     if match_method == 'code':
                         self.stats['found_by_code'] += 1
                     else:
