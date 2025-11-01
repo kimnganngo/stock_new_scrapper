@@ -362,8 +362,7 @@ class StockScraperWeb:
             return content
         
         full_text = title + ". " + content
-        # Ngắt câu bằng ". " (dấu chấm + khoảng trắng) để tránh nhầm với số như 1.000.000
-        sentences = re.split(r'\.\s+|[!?]+\s*', full_text)
+        sentences = re.split(r'[.!?]+', full_text)
         sentences = [s.strip() for s in sentences if len(s.strip()) > 30]
         
         if len(sentences) <= max_sentences:
